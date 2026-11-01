@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from finrecon_ai.synthetic.generator import Scenario, add_business_days, expected_fee, generate
+from finrecon_ai.synthetic.generator import BURST_EXTRA_PAYMENTS, Scenario, add_business_days, expected_fee, generate
 
 
 def test_same_seed_same_data():
@@ -16,8 +16,9 @@ def test_every_scenario_is_planted():
 def test_record_counts_follow_from_scenarios():
     data = generate(payments=1000)
     c = data.manifest["scenario_counts"]
-    assert len(data.gateway) == 1000 + c["duplicate_payment"]
-    assert len(data.settlements) == 1000 + c["duplicate_payment"] - c["failed_payment"] - c["missing_settlement"]
+    extra = c["duplicate_payment"] + BURST_EXTRA_PAYMENTS * c["payment_burst"]
+    assert len(data.gateway) == 1000 + extra
+    assert len(data.settlements) == 1000 + extra - c["failed_payment"] - c["missing_settlement"]
     expected_bank = (len(data.settlements) - c["missing_bank_credit"] + c["duplicate_bank_credit"]
                      + c["unexplained_bank_credit"] + c["bank_only_charge"] + c["malformed_record"])
     assert len(data.bank) == expected_bank

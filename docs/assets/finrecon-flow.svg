@@ -95,7 +95,7 @@
 
   <!-- Matched pill -->
   <rect x="430" y="136" width="170" height="40" rx="20" fill="#0F2A24" stroke="#34D399" stroke-width="1.5"/>
-  <text class="h" x="515" y="161" text-anchor="middle" fill="#34D399" style="fill:#6EE7B7">✓ 1,885 matched pairs</text>
+  <text class="h" x="515" y="161" text-anchor="middle" fill="#34D399" style="fill:#6EE7B7">✓ 1,915 matched pairs</text>
 
   <!-- Stages -->
   <g>
@@ -117,8 +117,8 @@
     <rect class="pulse" x="630" y="222" width="150" height="96" rx="12" stroke="#FBBF24" style="animation-delay:1.8s"/>
     <text class="num" x="646" y="246">03</text>
     <text class="h" x="646" y="268">Exceptions</text>
-    <text class="s" x="646" y="288">fees · duplicates</text>
-    <text class="s" x="646" y="304">missing · mismatches</text>
+    <text class="s" x="646" y="288">incl. anomalies</text>
+    <text class="s" x="646" y="304">→ cases, assigned</text>
 
     <rect class="card" x="820" y="222" width="150" height="96" rx="12" stroke="#64748B" stroke-dasharray="6 5"/>
     <rect class="pulse" x="820" y="222" width="150" height="96" rx="12" stroke="#A78BFA" style="animation-delay:2.7s"/>
@@ -169,6 +169,6 @@
 
   <!-- Footer -->
   <line x1="40" y1="452" x2="1160" y2="452" stroke="#1B2840" stroke-width="1"/>
-  <text class="stat" x="40" y="482">2,975 synthetic records  ·  110 exceptions found  ·  every planted problem caught  ·  0 false positives</text>
+  <text class="stat" x="40" y="482">3,020 synthetic records  ·  118 exceptions → 118 cases  ·  every planted problem caught  ·  0 false positives</text>
   <text class="tech" x="1160" y="482" text-anchor="end">Python · PostgreSQL · LangGraph · Claude · Qdrant</text>
 </svg>

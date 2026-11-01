@@ -34,6 +34,8 @@ EXPECTED_CATEGORY = {
     Scenario.CURRENCY_MISMATCH: ExceptionCategory.CURRENCY_MISMATCH,
     Scenario.UNEXPLAINED_BANK_CREDIT: ExceptionCategory.UNMATCHED,
     Scenario.BANK_ONLY_CHARGE: ExceptionCategory.UNMATCHED,
+    Scenario.UNUSUAL_AMOUNT: ExceptionCategory.ANOMALY,
+    Scenario.PAYMENT_BURST: ExceptionCategory.ANOMALY,
 }
 NO_EXCEPTION = {Scenario.CLEAN, Scenario.FAILED_PAYMENT, Scenario.MALFORMED_RECORD}
 assert set(EXPECTED_CATEGORY) | NO_EXCEPTION == set(Scenario), "every scenario needs an expectation"

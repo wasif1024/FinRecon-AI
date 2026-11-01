@@ -18,6 +18,7 @@ from finrecon_ai.db.base import (
 )
 from finrecon_ai.db.enums import (
     CaseStatus,
+    ClosureReason,
     EvidenceType,
     FindingType,
     RecommendationStatus,
@@ -28,7 +29,10 @@ from finrecon_ai.db.enums import (
 
 class InvestigationCase(UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin, Base):
     __tablename__ = "investigation_cases"
-    __table_args__ = (UniqueConstraint("tenant_id", "case_number"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "case_number"),
+        CheckConstraint("(status = 'closed') = (closure_reason IS NOT NULL)", name="closed_has_reason"),
+    )
 
     case_number: Mapped[str] = mapped_column(String(50))
     # One case per qualifying exception (FR-05); related transactions come via exception_transactions.
@@ -46,6 +50,7 @@ class InvestigationCase(UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin, Base):
     workflow_thread_id: Mapped[str | None] = mapped_column(String(200), unique=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    closure_reason: Mapped[ClosureReason | None] = mapped_column(str_enum(ClosureReason))
 
 
 class InvestigationEvidence(UUIDPrimaryKeyMixin, TenantMixin, Base):

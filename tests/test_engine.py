@@ -190,3 +190,53 @@ def replace_leg(leg: LegConfig, **changes) -> LegConfig:
 @pytest.mark.parametrize("leg", DEFAULT_CONFIG.legs, ids=lambda leg: leg.name)
 def test_config_snapshot_round_trips(leg):
     assert LegConfig.model_validate(leg.model_dump(mode="json")) == leg
+
+
+# --- anomalies ---
+
+
+def gateway_history(n=30, merchant="Shop"):
+    rng = random.Random(1)
+    return [payment(f"pg_h{i}", amount=f"{rng.randint(50, 150)}.00", fee="1.00", merchant=merchant,
+                    timestamp=datetime(2026, 10, 1, tzinfo=UTC) + timedelta(days=i % 28, hours=i))
+            for i in range(n)]
+
+
+def anomalies(result):
+    return [e for e in result.exceptions if e.category is ExceptionCategory.ANOMALY]
+
+
+def test_amount_outlier_flagged_with_statistics():
+    history = gateway_history()
+    big = payment("pg_big", amount="25000.00", fee="1.00", timestamp=datetime(2026, 10, 9, tzinfo=UTC))
+    [exc] = [e for e in anomalies(reconcile([*history, big], DEFAULT_CONFIG))
+             if e.rule_code == "anomaly.amount_outlier"]
+    assert exc.transaction_ids == (big.id,)
+    assert exc.discrepancy_amount is None
+    assert exc.severity is Severity.HIGH  # value at stake above threshold
+    assert Decimal(exc.details["robust_z"]) > 6
+    assert "not a fraud determination" in exc.details["note"]
+
+
+def test_amount_outlier_needs_enough_history():
+    history = gateway_history(n=10)
+    big = payment("pg_big", amount="25000.00", fee="1.00")
+    assert not [e for e in anomalies(reconcile([*history, big], DEFAULT_CONFIG))
+                if e.rule_code == "anomaly.amount_outlier"]
+
+
+def test_payment_burst_is_one_exception_per_cluster():
+    t0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
+    burst = [payment(f"pg_b{i}", amount=f"{10 + i}.00", fee="0.50", timestamp=t0 + timedelta(minutes=9 * i))
+             for i in range(6)]
+    [exc] = anomalies(reconcile(burst, DEFAULT_CONFIG))
+    assert exc.rule_code == "anomaly.payment_burst"
+    assert len(exc.transaction_ids) == 6
+    assert exc.details["payments"] == 6
+
+
+def test_spread_out_payments_are_not_a_burst():
+    t0 = datetime(2026, 10, 5, 9, 0, tzinfo=UTC)
+    spread = [payment(f"pg_s{i}", amount=f"{10 + i}.00", fee="0.50", timestamp=t0 + timedelta(minutes=20 * i))
+              for i in range(6)]
+    assert anomalies(reconcile(spread, DEFAULT_CONFIG)) == []

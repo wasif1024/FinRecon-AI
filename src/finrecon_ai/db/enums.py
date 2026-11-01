@@ -111,6 +111,12 @@ class CaseStatus(StrEnum):
     CLOSED = "closed"
 
 
+class ClosureReason(StrEnum):
+    RESOLVED = "resolved"
+    FALSE_POSITIVE = "false_positive"  # the exception was not a real problem
+    NOT_ACTIONABLE = "not_actionable"  # real, but nothing to do (e.g. expected bank charge)
+
+
 class EvidenceType(StrEnum):
     TRANSACTION = "transaction"
     POLICY_PASSAGE = "policy_passage"

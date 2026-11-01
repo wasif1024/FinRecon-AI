@@ -6,9 +6,10 @@ Each leg matches a left source to the right source it flows into:
   2. Fallback pass: unmatched records with identical amount + currency inside the date window.
      A single candidate is a partial match (reference disagrees); several candidates are left unmatched.
   3. Whatever remains is unmatched on its side.
-Then each source is scanned for duplicates within itself.
+Then each source is scanned for duplicates within itself, and for anomalies (amount outliers, payment bursts).
 """
 
+import statistics
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
@@ -26,7 +27,7 @@ from finrecon_ai.db.enums import (
     SourceType,
     TransactionStatus,
 )
-from finrecon_ai.reconciliation.config import LegConfig, ReconciliationConfig
+from finrecon_ai.reconciliation.config import AnomalyConfig, LegConfig, ReconciliationConfig
 
 
 @dataclass(frozen=True)
@@ -89,7 +90,11 @@ BASE_SEVERITY = {
     ExceptionCategory.POTENTIAL_DUPLICATE: Severity.MEDIUM,
     ExceptionCategory.DATE_MISMATCH: Severity.LOW,
     ExceptionCategory.PARTIALLY_MATCHED: Severity.LOW,
+    ExceptionCategory.ANOMALY: Severity.MEDIUM,
 }
+# Scales MAD to be comparable with a standard deviation for normal data.
+MAD_SCALE = Decimal("0.6745")
+ANOMALY_NOTE = "statistical indicator for review; not a fraud determination"
 CLASSIFICATION_TO_CATEGORY = {
     MatchClassification.CURRENCY_MISMATCH: ExceptionCategory.CURRENCY_MISMATCH,
     MatchClassification.AMOUNT_MISMATCH: ExceptionCategory.AMOUNT_MISMATCH,
@@ -110,6 +115,7 @@ def reconcile(transactions: Iterable[Txn], config: ReconciliationConfig) -> Reco
     for leg in config.legs:
         _reconcile_leg(leg, by_source[leg.left_source], by_source[leg.right_source], config, result, duplicate_ids)
     _detect_duplicates(txns, config, result, duplicate_ids)
+    _detect_anomalies(txns, config.anomalies, config, result)
     result.summary = _summarize(txns, result)
     return result
 
@@ -352,6 +358,79 @@ def _detect_duplicates(txns: Sequence[Txn], config: ReconciliationConfig, result
                 cluster = [txn]
 
 
+# --- anomalies (FR-08) ---
+
+
+def _detect_anomalies(txns: Sequence[Txn], anomalies: AnomalyConfig, config: ReconciliationConfig,
+                      result: ReconciliationResult) -> None:
+    scoped = [t for t in txns if t.source_type in anomalies.source_types]
+
+    by_merchant: dict[tuple[Any, ...], list[Txn]] = defaultdict(list)
+    for txn in scoped:
+        by_merchant[(txn.source_id, _norm_text(txn.merchant), txn.currency)].append(txn)
+    for (_, merchant, currency), group in by_merchant.items():
+        if len(group) < anomalies.amount_min_samples:
+            continue
+        amounts = [t.amount for t in group]
+        median = statistics.median(amounts)
+        mad = statistics.median(abs(a - median) for a in amounts)
+        if mad == 0:
+            continue
+        for txn in group:
+            z = MAD_SCALE * (txn.amount - median) / mad
+            if abs(z) >= anomalies.amount_outlier_z:
+                result.exceptions.append(_exception(
+                    ExceptionCategory.ANOMALY, (txn.id,), None, txn.currency, rule_code="anomaly.amount_outlier",
+                    config=config, severity_amount=txn.amount,
+                    details={"indicator": "amount far outside the merchant's usual range", "note": ANOMALY_NOTE,
+                             "merchant": txn.merchant, "amount": str(txn.amount), "median": str(median),
+                             "mad": str(mad), "robust_z": str(z.quantize(Decimal("0.01"))),
+                             "threshold": str(anomalies.amount_outlier_z), "sample_size": len(group)},
+                ))
+
+    by_payer: dict[tuple[Any, ...], list[Txn]] = defaultdict(list)
+    for txn in scoped:
+        if txn.transaction_timestamp and txn.counterparty:
+            by_payer[(txn.source_id, _norm_text(txn.counterparty), _norm_text(txn.merchant))].append(txn)
+    window = anomalies.velocity_window_minutes * 60
+    for group in by_payer.values():
+        if len(group) < anomalies.velocity_count:
+            continue
+        group.sort(key=_moment)
+        flagged = [False] * len(group)
+        end = 0
+        for start in range(len(group)):
+            end = max(end, start)
+            while (end + 1 < len(group) and (group[end + 1].transaction_timestamp
+                                             - group[start].transaction_timestamp).total_seconds() <= window):
+                end += 1
+            if end - start + 1 >= anomalies.velocity_count:
+                for i in range(start, end + 1):
+                    flagged[i] = True
+        cluster: list[Txn] = []
+        for txn, is_flagged in [*zip(group, flagged, strict=True), (None, False)]:
+            if is_flagged:
+                cluster.append(txn)
+                continue
+            if cluster:
+                first = cluster[0]
+                currencies = {t.currency for t in cluster}
+                total = sum((t.amount for t in cluster), Decimal("0")) if len(currencies) == 1 else None
+                result.exceptions.append(_exception(
+                    ExceptionCategory.ANOMALY, tuple(t.id for t in cluster), None,
+                    first.currency if total is not None else None, rule_code="anomaly.payment_burst",
+                    config=config, severity_amount=total,
+                    details={"indicator": "unusually many payments from one counterparty in a short window",
+                             "note": ANOMALY_NOTE, "counterparty": first.counterparty, "merchant": first.merchant,
+                             "payments": len(cluster), "total": str(total) if total is not None else None,
+                             "first": first.transaction_timestamp.isoformat(),
+                             "last": cluster[-1].transaction_timestamp.isoformat(),
+                             "window_minutes": anomalies.velocity_window_minutes,
+                             "source_transaction_ids": [t.source_transaction_id for t in cluster]},
+                ))
+                cluster = []
+
+
 def _moment(txn: Txn) -> tuple[date, datetime | None, str]:
     return (txn.transaction_date, txn.transaction_timestamp, txn.source_transaction_id or "")
 
@@ -367,10 +446,12 @@ def _within_window(a: Txn, b: Txn, minutes: int) -> bool:
 
 def _exception(category: ExceptionCategory, transaction_ids: tuple[uuid.UUID, ...], amount: Decimal | None,
                currency: str | None, *, rule_code: str, config: ReconciliationConfig, details: dict[str, Any],
-               match_index: int | None = None) -> ExceptionRecord:
+               match_index: int | None = None, severity_amount: Decimal | None = None) -> ExceptionRecord:
+    """amount is the discrepancy; severity_amount (default: amount) is the value at stake for severity."""
     severity = BASE_SEVERITY[category]
+    at_stake = severity_amount if severity_amount is not None else amount
     # Threshold is applied in the record's own currency; no cross-currency conversion (SRS §10).
-    if amount is not None and amount >= config.high_value_threshold:
+    if at_stake is not None and at_stake >= config.high_value_threshold:
         severity = SEVERITY_ORDER[min(SEVERITY_ORDER.index(severity) + 1, len(SEVERITY_ORDER) - 1)]
     return ExceptionRecord(category, severity, transaction_ids, amount, currency, rule_code, details, match_index)
 

@@ -50,6 +50,8 @@ class Scenario(StrEnum):
     DELAYED_SETTLEMENT = "delayed_settlement"  # bank credit 7-12 days late
     WRONG_BANK_REFERENCE = "wrong_bank_reference"  # reference typo on the bank line
     CURRENCY_MISMATCH = "currency_mismatch"  # bank booked in the wrong currency
+    UNUSUAL_AMOUNT = "unusual_amount"  # far above the merchant's normal range; otherwise clean
+    PAYMENT_BURST = "payment_burst"  # one customer pays the same merchant 6 times within an hour
     UNEXPLAINED_BANK_CREDIT = "unexplained_bank_credit"  # bank only, no source record
     BANK_ONLY_CHARGE = "bank_only_charge"  # legitimate bank fee, no counterpart expected
     MALFORMED_RECORD = "malformed_record"  # must be rejected at ingestion
@@ -67,7 +69,10 @@ PAYMENT_SCENARIO_RATES = {
     Scenario.DELAYED_SETTLEMENT: 0.015,
     Scenario.WRONG_BANK_REFERENCE: 0.01,
     Scenario.CURRENCY_MISMATCH: 0.005,
+    Scenario.UNUSUAL_AMOUNT: 0.005,
+    Scenario.PAYMENT_BURST: 0.003,
 }
+BURST_EXTRA_PAYMENTS = 5
 
 GATEWAY_FILE = "payment_gateway.json"
 SETTLEMENT_FILE = "merchant_settlements.csv"
@@ -154,6 +159,8 @@ def generate(seed: int = 42, payments: int = 1000, start: date = date(2026, 10, 
         gross = Decimal(rng.randint(500, 200_000)) / 100
         if scenario in (Scenario.FEE_DISCREPANCY, Scenario.BANK_AMOUNT_MISMATCH):
             gross += 20  # keep the net amount positive after the planted deduction
+        elif scenario is Scenario.UNUSUAL_AMOUNT:
+            gross = Decimal(rng.randint(1_500_000, 4_000_000)) / 100
         customer = f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
         payment = new_payment(created, gross, currency, merchant, customer, f"ORD-{index:06d}")
         gateway.append(payment)
@@ -171,6 +178,16 @@ def generate(seed: int = 42, payments: int = 1000, start: date = date(2026, 10, 
             gateway.append(duplicate)
             case.payment_ids.append(duplicate["id"])
             to_settle.append(duplicate)
+
+        elif scenario is Scenario.PAYMENT_BURST:
+            at = created
+            for k in range(1, BURST_EXTRA_PAYMENTS + 1):
+                at += timedelta(minutes=rng.randint(3, 10))
+                extra = new_payment(at, Decimal(rng.randint(500, 200_000)) / 100, currency, merchant, customer,
+                                    f"ORD-{index:06d}-{k}")
+                gateway.append(extra)
+                case.payment_ids.append(extra["id"])
+                to_settle.append(extra)
 
         if scenario is Scenario.MISSING_SETTLEMENT:
             continue

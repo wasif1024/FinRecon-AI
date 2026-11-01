@@ -1,15 +1,18 @@
-"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile."""
+"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases."""
 
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from finrecon_ai.db.enums import IngestionMethod, SourceType
-from finrecon_ai.db.models import FinancialSource, ImportBatch, Tenant
+from finrecon_ai.authz import Actor
+from finrecon_ai.cases.service import create_cases_for_run, list_cases
+from finrecon_ai.db.enums import CaseStatus, IngestionMethod, RoleName, SourceType
+from finrecon_ai.db.models import FinancialSource, ImportBatch, ReconciliationRun, Role, Tenant, User
 from finrecon_ai.db.session import new_session
 from finrecon_ai.ingestion.mappings import DEFAULT_MAPPINGS
 from finrecon_ai.ingestion.service import IngestionError, ingest_file
@@ -23,10 +26,17 @@ DEMO_SOURCES = {
     "settlement": ("PayGate Merchant Settlements", SourceType.MERCHANT_SETTLEMENT, IngestionMethod.CSV,
                    SETTLEMENT_FILE),
 }
+# One user per role. No passwords: authentication arrives in Phase 4.
+DEMO_USERS = {
+    RoleName.ANALYST: ("analyst@demo.finrecon.dev", "Demo Analyst"),
+    RoleName.MANAGER: ("manager@demo.finrecon.dev", "Demo Manager"),
+    RoleName.ADMIN: ("admin@demo.finrecon.dev", "Demo Admin"),
+    RoleName.AUDITOR: ("auditor@demo.finrecon.dev", "Demo Auditor"),
+}
 
 
 def seed_demo(session: Session) -> Tenant:
-    """Idempotent: creates the demo tenant and its three sources if missing."""
+    """Idempotent: creates the demo tenant, its three sources and one user per role if missing."""
     tenant = session.scalar(select(Tenant).where(Tenant.slug == DEMO_TENANT_SLUG))
     if tenant is None:
         tenant = Tenant(name="Demo Fintech Ltd", slug=DEMO_TENANT_SLUG)
@@ -44,6 +54,10 @@ def seed_demo(session: Session) -> Tenant:
                 ingestion_method=method,
                 config={"mapping": DEFAULT_MAPPINGS[source_type].model_dump(mode="json")},
             ))
+    roles = {r.name: r for r in session.scalars(select(Role))}
+    for role, (email, full_name) in DEMO_USERS.items():
+        if session.scalar(select(User).where(User.tenant_id == tenant.id, User.email == email)) is None:
+            session.add(User(tenant_id=tenant.id, email=email, full_name=full_name, roles=[roles[role]]))
     session.flush()
     return tenant
 
@@ -66,6 +80,13 @@ def main(argv: list[str] | None = None) -> int:
 
     commands.add_parser("reconcile", help="reconcile the latest import batch of each demo source")
 
+    cases = commands.add_parser("cases", help="investigation cases")
+    case_commands = cases.add_subparsers(dest="case_command", required=True)
+    case_commands.add_parser("create", help="open a case for each qualifying exception of the latest run")
+    case_list = case_commands.add_parser("list", help="list cases")
+    case_list.add_argument("--status", choices=[s.value for s in CaseStatus])
+    case_list.add_argument("--limit", type=int, default=20)
+
     args = parser.parse_args(argv)
 
     if args.command == "generate-data":
@@ -83,6 +104,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "reconcile":
             return _reconcile(session, tenant)
+
+        if args.command == "cases":
+            return _cases(session, tenant, args)
 
         keys = list(DEMO_SOURCES) if args.source == "all" else [args.source]
         if args.file and len(keys) > 1:
@@ -132,6 +156,28 @@ def _reconcile(session: Session, tenant: Tenant) -> int:
     session.commit()
     note = "" if result.created else "identical run already exists, showing it\n"
     print(note + json.dumps(result.run.summary, indent=2))
+    return 0
+
+
+def _cases(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
+    actor = Actor.system(tenant.id)
+    if args.case_command == "create":
+        run = session.scalar(select(ReconciliationRun).where(ReconciliationRun.tenant_id == tenant.id)
+                             .order_by(ReconciliationRun.created_at.desc()).limit(1))
+        if run is None:
+            print("no reconciliation run; run `finrecon reconcile` first", file=sys.stderr)
+            return 1
+        result = create_cases_for_run(session, actor, run.id)
+        session.commit()
+        by_priority = Counter(c.priority.value for c in result.created)
+        print(f"{len(result.created)} cases opened ({dict(sorted(by_priority.items()))}), "
+              f"{result.not_qualifying} exceptions below policy")
+        return 0
+
+    found = list_cases(session, actor, status=CaseStatus(args.status) if args.status else None)
+    print(f"{len(found)} cases" + (f", showing {args.limit}" if len(found) > args.limit else ""))
+    for case in found[:args.limit]:
+        print(f"{case.case_number}  {case.status:<17} {case.priority:<8} {case.title}")
     return 0
 
 

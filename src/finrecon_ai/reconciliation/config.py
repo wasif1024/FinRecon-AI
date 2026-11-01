@@ -43,10 +43,25 @@ class LegConfig(BaseModel):
     right_unmatched_category: ExceptionCategory = ExceptionCategory.UNMATCHED
 
 
+class AnomalyConfig(BaseModel):
+    """Rule-based and statistical indicators (FR-08). They flag for review; they never label fraud."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    source_types: tuple[SourceType, ...] = (SourceType.PAYMENT_GATEWAY,)
+    # Robust z-score (median/MAD) of an amount within its merchant + currency group.
+    amount_outlier_z: Decimal = Decimal("6")
+    amount_min_samples: int = Field(default=20, ge=3)
+    # This many payments from one counterparty to one merchant inside the window.
+    velocity_count: int = Field(default=5, ge=2)
+    velocity_window_minutes: int = Field(default=60, ge=1)
+
+
 class ReconciliationConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     legs: tuple[LegConfig, ...]
+    anomalies: AnomalyConfig = AnomalyConfig()
     # Same amount, currency, counterparty and reference within this window = potential duplicate (FR-04).
     duplicate_window_minutes: int = Field(default=10, ge=0)
     high_value_threshold: Decimal = Decimal("1000")
@@ -80,4 +95,4 @@ DEFAULT_CONFIG = ReconciliationConfig(
     ),
 )
 
-ENGINE_VERSION = "1.0.0"
+ENGINE_VERSION = "1.1.0"

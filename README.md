@@ -22,11 +22,22 @@ uv run alembic upgrade head # create the database schema
 uv run finrecon generate-data   # writes data/synthetic/ (3 source files + manifest.json)
 uv run finrecon ingest all      # creates the demo tenant + sources, imports all three files
 uv run finrecon reconcile       # match the latest batches and record exceptions
+uv run finrecon cases create    # open one investigation case per qualifying exception
+uv run finrecon cases list --status new
 ```
 
 Matching runs in two legs (gateway -> settlement, settlement -> bank): exact reference first, then
 amount + currency + date window for what is left. Rules live in `src/finrecon_ai/reconciliation/config.py`;
 every run stores a snapshot of them and every match stores which rules passed or failed.
+The same run flags anomalies (amounts far outside a merchant's range, payment bursts) as indicators
+for review, never as fraud determinations.
+
+## Cases and permissions
+
+Cases follow the SRS lifecycle (`src/finrecon_ai/cases/lifecycle.py`); every change is permission-checked
+and audited. Analysts work cases assigned to them, managers assign and work any case, admins and auditors
+read only. Decisions out of `awaiting_approval` are reserved for the approval workflow (Phase 4).
+Permissions are fail-closed (`src/finrecon_ai/authz.py`).
 
 `manifest.json` lists every planted problem (fee discrepancies, duplicates, missing records, malformed rows, ...).
 It is the ground truth for matching tests and agent evaluations. Re-importing the same file is skipped.
