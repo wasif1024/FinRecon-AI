@@ -1,4 +1,4 @@
-"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases | prompts."""
+"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases | prompts | agents."""
 
 import argparse
 import json
@@ -92,6 +92,12 @@ def main(argv: list[str] | None = None) -> int:
     prompt_commands.add_parser("list", help="show every prompt version, its status and hash")
     prompt_commands.add_parser("lock", help="record hashes of newly released prompt versions")
 
+    agents = commands.add_parser("agents", help="run agents")
+    agent_commands = agents.add_subparsers(dest="agent_command", required=True)
+    agent_try = agent_commands.add_parser("try", help="run the investigation agent on one case (calls Claude) "
+                                          "and print its report; findings are not saved to the case")
+    agent_try.add_argument("case_number")
+
     args = parser.parse_args(argv)
 
     if args.command == "prompts":
@@ -115,6 +121,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "cases":
             return _cases(session, tenant, args)
+
+        if args.command == "agents":
+            return _agents_try(session, tenant, args.case_number)
 
         keys = list(DEMO_SOURCES) if args.source == "all" else [args.source]
         if args.file and len(keys) > 1:
@@ -186,6 +195,37 @@ def _cases(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
     print(f"{len(found)} cases" + (f", showing {args.limit}" if len(found) > args.limit else ""))
     for case in found[:args.limit]:
         print(f"{case.case_number}  {case.status:<17} {case.priority:<8} {case.title}")
+    return 0
+
+
+def _agents_try(session: Session, tenant: Tenant, case_number: str) -> int:
+    from finrecon_ai.agents.llm import default_client
+    from finrecon_ai.agents.prompt_registry import load_prompt
+    from finrecon_ai.agents.runtime import AgentFailed, run_agent
+    from finrecon_ai.agents.tools import ToolContext
+    from finrecon_ai.db.enums import AgentName
+    from finrecon_ai.db.models import InvestigationCase, ReconciliationException
+
+    case = session.scalar(select(InvestigationCase).where(InvestigationCase.tenant_id == tenant.id,
+                                                          InvestigationCase.case_number == case_number))
+    if case is None:
+        print(f"case {case_number} not found", file=sys.stderr)
+        return 1
+    ctx = ToolContext(session=session, tenant_id=tenant.id, case=case,
+                      exception=session.get(ReconciliationException, case.exception_id))
+    spec = load_prompt(AgentName.INVESTIGATION)
+    try:
+        result = run_agent(session, spec=spec, ctx=ctx, client=default_client(),
+                           user_content=f"Investigate case {case.case_number}: {case.title}")
+    except AgentFailed as exc:
+        session.commit()
+        print(f"agent failed: {exc}", file=sys.stderr)
+        return 1
+    session.commit()
+    e = result.execution
+    print(json.dumps(result.output.model_dump(mode="json"), indent=2))
+    print(f"\n{spec.ref} | {len(e.tool_calls)} tool calls: {[c['tool'] for c in e.tool_calls]} | "
+          f"tokens in {e.input_tokens}, out {e.output_tokens} | execution {e.id}", file=sys.stderr)
     return 0
 
 
