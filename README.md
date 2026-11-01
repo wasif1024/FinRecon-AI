@@ -17,7 +17,12 @@ uv run alembic upgrade head # create the database schema
 ```bash
 uv run finrecon generate-data   # writes data/synthetic/ (3 source files + manifest.json)
 uv run finrecon ingest all      # creates the demo tenant + sources, imports all three files
+uv run finrecon reconcile       # match the latest batches and record exceptions
 ```
+
+Matching runs in two legs (gateway -> settlement, settlement -> bank): exact reference first, then
+amount + currency + date window for what is left. Rules live in `src/finrecon_ai/reconciliation/config.py`;
+every run stores a snapshot of them and every match stores which rules passed or failed.
 
 `manifest.json` lists every planted problem (fee discrepancies, duplicates, missing records, malformed rows, ...).
 It is the ground truth for matching tests and agent evaluations. Re-importing the same file is skipped.

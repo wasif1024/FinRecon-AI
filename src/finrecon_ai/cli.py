@@ -1,4 +1,4 @@
-"""Developer CLI: finrecon generate-data | seed-demo | ingest."""
+"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile."""
 
 import argparse
 import json
@@ -9,10 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from finrecon_ai.db.enums import IngestionMethod, SourceType
-from finrecon_ai.db.models import FinancialSource, Tenant
+from finrecon_ai.db.models import FinancialSource, ImportBatch, Tenant
 from finrecon_ai.db.session import new_session
 from finrecon_ai.ingestion.mappings import DEFAULT_MAPPINGS
 from finrecon_ai.ingestion.service import IngestionError, ingest_file
+from finrecon_ai.reconciliation.service import ReconciliationError, run_reconciliation
 from finrecon_ai.synthetic.generator import BANK_FILE, GATEWAY_FILE, SETTLEMENT_FILE, generate, write_dataset
 
 DEMO_TENANT_SLUG = "demo"
@@ -63,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     ing.add_argument("--dir", type=Path, default=Path("data/synthetic"), help="folder holding the synthetic files")
     ing.add_argument("--file", type=Path, help="explicit file (single source only)")
 
+    commands.add_parser("reconcile", help="reconcile the latest import batch of each demo source")
+
     args = parser.parse_args(argv)
 
     if args.command == "generate-data":
@@ -77,6 +80,9 @@ def main(argv: list[str] | None = None) -> int:
             session.commit()
             print(f"demo tenant ready: {tenant.id}")
             return 0
+
+        if args.command == "reconcile":
+            return _reconcile(session, tenant)
 
         keys = list(DEMO_SOURCES) if args.source == "all" else [args.source]
         if args.file and len(keys) > 1:
@@ -100,6 +106,32 @@ def main(argv: list[str] | None = None) -> int:
             note = "" if result.created else " (already imported, skipped)"
             print(f"{key}: {b.status} - {b.accepted_records} accepted, {b.rejected_records} rejected "
                   f"of {b.total_records}{note}")
+    return 0
+
+
+def _reconcile(session: Session, tenant: Tenant) -> int:
+    batch_ids = []
+    for name, *_ in DEMO_SOURCES.values():
+        batch = session.scalar(
+            select(ImportBatch)
+            .join(FinancialSource, FinancialSource.id == ImportBatch.source_id)
+            .where(FinancialSource.tenant_id == tenant.id, FinancialSource.name == name)
+            .order_by(ImportBatch.created_at.desc())
+            .limit(1)
+        )
+        if batch is None:
+            print(f"no import batch for {name!r}; run `finrecon ingest all` first", file=sys.stderr)
+            return 1
+        batch_ids.append(batch.id)
+    try:
+        result = run_reconciliation(session, tenant_id=tenant.id, import_batch_ids=batch_ids)
+    except ReconciliationError as exc:
+        session.rollback()
+        print(exc, file=sys.stderr)
+        return 1
+    session.commit()
+    note = "" if result.created else "identical run already exists, showing it\n"
+    print(note + json.dumps(result.run.summary, indent=2))
     return 0
 
 
