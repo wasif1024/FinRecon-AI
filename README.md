@@ -1,5 +1,9 @@
 # FinRecon AI
 
+<p align="center">
+  <img src="docs/assets/finrecon-flow.svg" alt="FinRecon AI pipeline: three financial sources are ingested, matched deterministically and turned into exceptions, which AI agents investigate and humans approve; every step is written to a hash-chained audit log." width="100%">
+</p>
+
 Agentic AI platform for financial reconciliation, exception investigation and human-approved resolution. See [docs/SRS.md](docs/SRS.md).
 
 ## Setup

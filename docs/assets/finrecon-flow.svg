@@ -1,0 +1,174 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" width="1200" height="520" role="img" aria-labelledby="title desc">
+  <title id="title">FinRecon AI pipeline</title>
+  <desc id="desc">Records from a bank statement, a payment gateway and merchant settlements are ingested, matched deterministically, and turned into exceptions; exceptions are investigated by AI agents and resolved only with human approval. Every step is written to a hash-chained audit log.</desc>
+
+  <defs>
+    <style>
+      .bg { fill: #0B1220; }
+      .card { fill: #111A2E; stroke: #22314F; stroke-width: 1.5; }
+      .title { font: 700 34px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #F1F5F9; letter-spacing: -0.5px; }
+      .subtitle { font: 400 16px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #94A3B8; }
+      .h { font: 600 15px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #F1F5F9; }
+      .s { font: 400 12px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #94A3B8; }
+      .num { font: 600 11px ui-monospace, "SF Mono", Menlo, Consolas, monospace; fill: #64748B; letter-spacing: 1px; }
+      .chip { font: 600 10px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; letter-spacing: 0.6px; }
+      .stat { font: 500 13px -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #CBD5E1; }
+      .tech { font: 400 12px ui-monospace, "SF Mono", Menlo, Consolas, monospace; fill: #64748B; }
+      .wire { fill: none; stroke: #22314F; stroke-width: 2; }
+      .tap { stroke: #334766; stroke-width: 2; stroke-dasharray: 2 6; animation: flow 1s linear infinite; }
+      .pulse { fill: none; stroke-width: 2; opacity: 0; animation: pulse 4.5s ease-in-out infinite; }
+      @keyframes flow { to { stroke-dashoffset: -16; } }
+      @keyframes pulse { 0%, 100% { opacity: 0; } 15% { opacity: 0.9; } 40% { opacity: 0; } }
+      @keyframes chain { to { transform: translateX(-36px); } }
+      .chain { animation: chain 2.4s linear infinite; }
+      @media (prefers-reduced-motion: reduce) {
+        .tap, .pulse, .chain { animation: none; }
+        .particles { display: none; }
+      }
+    </style>
+
+    <path id="m1" d="M190,205 C220,205 220,270 250,270 L515,270 L515,156"/>
+    <path id="m2" d="M190,270 L515,270 L515,156"/>
+    <path id="m3" d="M190,335 C220,335 220,270 250,270 L515,270 L515,156"/>
+    <path id="x1" d="M190,205 C220,205 220,270 250,270 L1085,270"/>
+    <path id="x2" d="M190,270 L1085,270"/>
+    <path id="x3" d="M190,335 C220,335 220,270 250,270 L1085,270"/>
+
+    <clipPath id="auditClip"><rect x="262" y="392" width="886" height="24" rx="4"/></clipPath>
+  </defs>
+
+  <rect class="bg" width="1200" height="520" rx="18"/>
+
+  <!-- Header -->
+  <text class="title" x="40" y="64">FinRecon AI</text>
+  <text class="subtitle" x="40" y="94">Agentic financial reconciliation: deterministic matching, AI investigation, human-approved resolution.</text>
+
+  <g transform="translate(905 46)">
+    <rect width="12" height="12" rx="3" fill="none" stroke="#60A5FA" stroke-width="1.5"/>
+    <text class="s" x="20" y="10">built</text>
+    <rect x="72" width="12" height="12" rx="3" fill="none" stroke="#64748B" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text class="s" x="92" y="10">planned</text>
+    <circle cx="190" cy="6" r="4.5" fill="#34D399"/>
+    <text class="s" x="200" y="10">matched</text>
+    <circle cx="190" cy="28" r="4.5" fill="#FBBF24"/>
+    <text class="s" x="200" y="32">exception</text>
+  </g>
+
+  <!-- Wires (behind everything) -->
+  <path class="wire" d="M190,205 C220,205 220,270 250,270"/>
+  <path class="wire" d="M190,335 C220,335 220,270 250,270"/>
+  <path class="wire" d="M190,270 L1010,270"/>
+  <path class="wire" d="M515,222 L515,176"/>
+
+  <!-- Particles: most records match and leave upward; exceptions continue to investigation and approval -->
+  <g class="particles">
+    <g fill="#34D399">
+      <circle r="4.5"><animateMotion dur="3s" repeatCount="indefinite" begin="-0.0s"><mpath href="#m1"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="3s" repeatCount="indefinite" begin="-0.5s"><mpath href="#m2"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="3s" repeatCount="indefinite" begin="-1.0s"><mpath href="#m3"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="3s" repeatCount="indefinite" begin="-1.5s"><mpath href="#m1"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="3s" repeatCount="indefinite" begin="-2.0s"><mpath href="#m2"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="3s" repeatCount="indefinite" begin="-2.5s"><mpath href="#m3"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="3s" repeatCount="indefinite" begin="-0.25s"><mpath href="#m3"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="3s" repeatCount="indefinite" begin="-1.25s"><mpath href="#m1"/></animateMotion></circle>
+      <circle r="4.5"><animateMotion dur="3s" repeatCount="indefinite" begin="-2.25s"><mpath href="#m2"/></animateMotion></circle>
+    </g>
+    <circle r="5" fill="#FBBF24"><animateMotion dur="6s" repeatCount="indefinite" begin="-0.4s"><mpath href="#x1"/></animateMotion></circle>
+    <circle r="5" fill="#F87171"><animateMotion dur="6s" repeatCount="indefinite" begin="-2.4s"><mpath href="#x3"/></animateMotion></circle>
+    <circle r="5" fill="#FBBF24"><animateMotion dur="6s" repeatCount="indefinite" begin="-4.4s"><mpath href="#x2"/></animateMotion></circle>
+  </g>
+
+  <!-- Sources -->
+  <g>
+    <rect class="card" x="40" y="177" width="150" height="56" rx="10"/>
+    <text class="h" x="56" y="201">Bank statement</text>
+    <text class="s" x="56" y="219">CSV · signed amounts</text>
+
+    <rect class="card" x="40" y="242" width="150" height="56" rx="10"/>
+    <text class="h" x="56" y="266">Payment gateway</text>
+    <text class="s" x="56" y="284">JSON · gross + fee</text>
+
+    <rect class="card" x="40" y="307" width="150" height="56" rx="10"/>
+    <text class="h" x="56" y="331">Settlements</text>
+    <text class="s" x="56" y="349">merchant · CSV</text>
+  </g>
+
+  <!-- Matched pill -->
+  <rect x="430" y="136" width="170" height="40" rx="20" fill="#0F2A24" stroke="#34D399" stroke-width="1.5"/>
+  <text class="h" x="515" y="161" text-anchor="middle" fill="#34D399" style="fill:#6EE7B7">✓ 1,885 matched pairs</text>
+
+  <!-- Stages -->
+  <g>
+    <rect class="card" x="250" y="222" width="150" height="96" rx="12" stroke="#2B5C9E"/>
+    <rect class="pulse" x="250" y="222" width="150" height="96" rx="12" stroke="#60A5FA" style="animation-delay:0s"/>
+    <text class="num" x="266" y="246">01</text>
+    <text class="h" x="266" y="268">Ingest</text>
+    <text class="s" x="266" y="288">normalize 3 sources</text>
+    <text class="s" x="266" y="304">reject bad rows</text>
+
+    <rect class="card" x="440" y="222" width="150" height="96" rx="12" stroke="#2B5C9E"/>
+    <rect class="pulse" x="440" y="222" width="150" height="96" rx="12" stroke="#60A5FA" style="animation-delay:0.9s"/>
+    <text class="num" x="456" y="246">02</text>
+    <text class="h" x="456" y="268">Match</text>
+    <text class="s" x="456" y="288">reference → amount</text>
+    <text class="s" x="456" y="304">→ date, all explained</text>
+
+    <rect class="card" x="630" y="222" width="150" height="96" rx="12" stroke="#8A6A1F"/>
+    <rect class="pulse" x="630" y="222" width="150" height="96" rx="12" stroke="#FBBF24" style="animation-delay:1.8s"/>
+    <text class="num" x="646" y="246">03</text>
+    <text class="h" x="646" y="268">Exceptions</text>
+    <text class="s" x="646" y="288">fees · duplicates</text>
+    <text class="s" x="646" y="304">missing · mismatches</text>
+
+    <rect class="card" x="820" y="222" width="150" height="96" rx="12" stroke="#64748B" stroke-dasharray="6 5"/>
+    <rect class="pulse" x="820" y="222" width="150" height="96" rx="12" stroke="#A78BFA" style="animation-delay:2.7s"/>
+    <text class="num" x="836" y="246">04</text>
+    <text class="h" x="836" y="268">AI investigation</text>
+    <text class="s" x="836" y="288">LangGraph + Claude</text>
+    <text class="s" x="836" y="304">facts vs hypotheses</text>
+
+    <rect class="card" x="1010" y="222" width="150" height="96" rx="12" stroke="#64748B" stroke-dasharray="6 5"/>
+    <rect class="pulse" x="1010" y="222" width="150" height="96" rx="12" stroke="#2DD4BF" style="animation-delay:3.6s"/>
+    <text class="num" x="1026" y="246">05</text>
+    <text class="h" x="1026" y="268">Human approval</text>
+    <text class="s" x="1026" y="288">approve · reject · ask</text>
+    <text class="s" x="1026" y="304">nothing auto-executes</text>
+  </g>
+
+  <!-- Audit taps and chain -->
+  <g>
+    <line class="tap" x1="325" y1="318" x2="325" y2="386"/>
+    <line class="tap" x1="515" y1="318" x2="515" y2="386"/>
+    <line class="tap" x1="705" y1="318" x2="705" y2="386"/>
+    <line class="tap" x1="895" y1="318" x2="895" y2="386"/>
+    <line class="tap" x1="1085" y1="318" x2="1085" y2="386"/>
+
+    <rect class="card" x="250" y="386" width="910" height="36" rx="10"/>
+    <g clip-path="url(#auditClip)">
+      <g class="chain" fill="#1B2A45" stroke="#3B5279" stroke-width="1.2">
+        <path d="M262,404 H1200" stroke="#2A3B5C" fill="none"/>
+        <rect x="262" y="398" width="16" height="12" rx="3"/><rect x="298" y="398" width="16" height="12" rx="3"/>
+        <rect x="334" y="398" width="16" height="12" rx="3"/><rect x="370" y="398" width="16" height="12" rx="3"/>
+        <rect x="406" y="398" width="16" height="12" rx="3"/><rect x="442" y="398" width="16" height="12" rx="3"/>
+        <rect x="478" y="398" width="16" height="12" rx="3"/><rect x="514" y="398" width="16" height="12" rx="3"/>
+        <rect x="550" y="398" width="16" height="12" rx="3"/><rect x="586" y="398" width="16" height="12" rx="3"/>
+        <rect x="622" y="398" width="16" height="12" rx="3"/><rect x="658" y="398" width="16" height="12" rx="3"/>
+        <rect x="694" y="398" width="16" height="12" rx="3"/><rect x="730" y="398" width="16" height="12" rx="3"/>
+        <rect x="766" y="398" width="16" height="12" rx="3"/><rect x="802" y="398" width="16" height="12" rx="3"/>
+        <rect x="838" y="398" width="16" height="12" rx="3"/><rect x="874" y="398" width="16" height="12" rx="3"/>
+        <rect x="910" y="398" width="16" height="12" rx="3"/><rect x="946" y="398" width="16" height="12" rx="3"/>
+        <rect x="982" y="398" width="16" height="12" rx="3"/><rect x="1018" y="398" width="16" height="12" rx="3"/>
+        <rect x="1054" y="398" width="16" height="12" rx="3"/><rect x="1090" y="398" width="16" height="12" rx="3"/>
+        <rect x="1126" y="398" width="16" height="12" rx="3"/><rect x="1162" y="398" width="16" height="12" rx="3"/>
+      </g>
+    </g>
+  </g>
+  <rect x="40" y="386" width="190" height="36" rx="10" fill="#111A2E" stroke="#22314F" stroke-width="1.5"/>
+  <text class="h" x="56" y="409" style="font-size:13px">Audit log</text>
+  <text class="s" x="128" y="409">hash-chained</text>
+
+  <!-- Footer -->
+  <line x1="40" y1="452" x2="1160" y2="452" stroke="#1B2840" stroke-width="1"/>
+  <text class="stat" x="40" y="482">2,975 synthetic records  ·  110 exceptions found  ·  every planted problem caught  ·  0 false positives</text>
+  <text class="tech" x="1160" y="482" text-anchor="end">Python · PostgreSQL · LangGraph · Claude · Qdrant</text>
+</svg>
