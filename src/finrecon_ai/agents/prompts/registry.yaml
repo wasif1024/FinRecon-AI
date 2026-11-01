@@ -1,0 +1,3 @@
+# Active prompt version per agent.
+agents:
+  investigation: v1

@@ -1,4 +1,4 @@
-"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases."""
+"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases | prompts."""
 
 import argparse
 import json
@@ -87,7 +87,15 @@ def main(argv: list[str] | None = None) -> int:
     case_list.add_argument("--status", choices=[s.value for s in CaseStatus])
     case_list.add_argument("--limit", type=int, default=20)
 
+    prompts = commands.add_parser("prompts", help="versioned agent prompts")
+    prompt_commands = prompts.add_subparsers(dest="prompt_command", required=True)
+    prompt_commands.add_parser("list", help="show every prompt version, its status and hash")
+    prompt_commands.add_parser("lock", help="record hashes of newly released prompt versions")
+
     args = parser.parse_args(argv)
+
+    if args.command == "prompts":
+        return _prompts(args)
 
     if args.command == "generate-data":
         dataset = generate(seed=args.seed, payments=args.payments)
@@ -178,6 +186,28 @@ def _cases(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
     print(f"{len(found)} cases" + (f", showing {args.limit}" if len(found) > args.limit else ""))
     for case in found[:args.limit]:
         print(f"{case.case_number}  {case.status:<17} {case.priority:<8} {case.title}")
+    return 0
+
+
+def _prompts(args: argparse.Namespace) -> int:
+    from finrecon_ai.agents.prompt_registry import PromptError, active_version, all_versions, load_prompt, \
+        lock_released, read_lock
+
+    if args.prompt_command == "lock":
+        try:
+            added = lock_released()
+        except PromptError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        print(f"locked: {', '.join(added)}" if added else "nothing new to lock")
+        return 0
+
+    lock = read_lock()
+    for agent, version in all_versions():
+        spec = load_prompt(agent, version)
+        active = "*" if active_version(agent) == version else " "
+        locked = "locked" if lock.get(f"{agent.value}@{version}") == spec.sha256 else ""
+        print(f"{active} {spec.ref:<40} {spec.manifest.status:<9} {locked}")
     return 0
 
 
