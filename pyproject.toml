@@ -1,0 +1,29 @@
+[project]
+name = "finrecon-ai"
+version = "0.1.0"
+description = "Agentic AI platform for financial reconciliation, exception investigation and human-approved resolution."
+authors = [
+    { name = "wasif1024", email = "wasif1024@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.20.1",
+    "psycopg[binary]>=3.3.6",
+    "pydantic-settings>=2.16.2",
+    "sqlalchemy>=2.0",
+]
+
+[project.scripts]
+finrecon = "finrecon_ai.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.18,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

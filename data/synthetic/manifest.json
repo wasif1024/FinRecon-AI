@@ -1,0 +1,1882 @@
+{
+  "seed": 42,
+  "payments_requested": 1000,
+  "period": {
+    "start": "2026-10-01",
+    "days": 31
+  },
+  "files": {
+    "payment_gateway": {
+      "file": "payment_gateway.json",
+      "records": 1010
+    },
+    "merchant_settlement": {
+      "file": "merchant_settlements.csv",
+      "records": 980
+    },
+    "bank_statement": {
+      "file": "bank_statement.csv",
+      "records": 988
+    }
+  },
+  "scenario_counts": {
+    "clean": 875,
+    "failed_payment": 20,
+    "fee_discrepancy": 20,
+    "bank_amount_mismatch": 15,
+    "missing_settlement": 10,
+    "missing_bank_credit": 10,
+    "duplicate_bank_credit": 10,
+    "duplicate_payment": 10,
+    "delayed_settlement": 15,
+    "wrong_bank_reference": 10,
+    "currency_mismatch": 5,
+    "unexplained_bank_credit": 2,
+    "bank_only_charge": 3,
+    "malformed_record": 3
+  },
+  "scenarios": [
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000005"
+      ],
+      "settlement_ids": [
+        "STL-000005"
+      ],
+      "bank_transaction_ids": [
+        "BNK-0A9918EE46"
+      ],
+      "details": {
+        "expected_fee": "42.08",
+        "charged_fee": "42.99",
+        "difference": "0.91"
+      }
+    },
+    {
+      "scenario": "duplicate_payment",
+      "payment_ids": [
+        "pg_000007",
+        "pg_000008"
+      ],
+      "settlement_ids": [
+        "STL-000007",
+        "STL-000008"
+      ],
+      "bank_transaction_ids": [
+        "BNK-847872BDEB",
+        "BNK-71A6C9537F"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000019"
+      ],
+      "settlement_ids": [
+        "STL-000019"
+      ],
+      "bank_transaction_ids": [
+        "BNK-D244656D6B"
+      ],
+      "details": {
+        "settlement_net": "1080.17",
+        "bank_amount": "1078.87",
+        "difference": "1.3"
+      }
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000040"
+      ],
+      "settlement_ids": [
+        "STL-000040"
+      ],
+      "bank_transaction_ids": [
+        "BNK-E980759F1F"
+      ],
+      "details": {
+        "settlement_net": "360.37",
+        "bank_amount": "359.01",
+        "difference": "1.36"
+      }
+    },
+    {
+      "scenario": "missing_settlement",
+      "payment_ids": [
+        "pg_000042"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "wrong_bank_reference",
+      "payment_ids": [
+        "pg_000051"
+      ],
+      "settlement_ids": [
+        "STL-000050"
+      ],
+      "bank_transaction_ids": [
+        "BNK-A4364C911A"
+      ],
+      "details": {
+        "correct_reference": "STL-000050",
+        "bank_reference": "STL-O00050"
+      }
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000054"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000069"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000071"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000072"
+      ],
+      "settlement_ids": [
+        "STL-000068"
+      ],
+      "bank_transaction_ids": [
+        "BNK-603712F2D1"
+      ],
+      "details": {
+        "expected_fee": "3.36",
+        "charged_fee": "6.57",
+        "difference": "3.21"
+      }
+    },
+    {
+      "scenario": "duplicate_bank_credit",
+      "payment_ids": [
+        "pg_000080"
+      ],
+      "settlement_ids": [
+        "STL-000076"
+      ],
+      "bank_transaction_ids": [
+        "BNK-EB75B27455",
+        "BNK-DC13EECDC6"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000091"
+      ],
+      "settlement_ids": [
+        "STL-000087"
+      ],
+      "bank_transaction_ids": [
+        "BNK-0AE5582E16"
+      ],
+      "details": {
+        "expected_fee": "36.20",
+        "charged_fee": "40.48",
+        "difference": "4.28"
+      }
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000096"
+      ],
+      "settlement_ids": [
+        "STL-000092"
+      ],
+      "bank_transaction_ids": [
+        "BNK-DAB9469BCF"
+      ],
+      "details": {
+        "expected_fee": "52.60",
+        "charged_fee": "54.39",
+        "difference": "1.79"
+      }
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000115"
+      ],
+      "settlement_ids": [
+        "STL-000111"
+      ],
+      "bank_transaction_ids": [
+        "BNK-E7D6312A80"
+      ],
+      "details": {
+        "expected_fee": "49.60",
+        "charged_fee": "50.66",
+        "difference": "1.06"
+      }
+    },
+    {
+      "scenario": "missing_bank_credit",
+      "payment_ids": [
+        "pg_000139"
+      ],
+      "settlement_ids": [
+        "STL-000135"
+      ],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "duplicate_payment",
+      "payment_ids": [
+        "pg_000171",
+        "pg_000172"
+      ],
+      "settlement_ids": [
+        "STL-000167",
+        "STL-000168"
+      ],
+      "bank_transaction_ids": [
+        "BNK-538F964685",
+        "BNK-A9FF84FAEF"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "duplicate_payment",
+      "payment_ids": [
+        "pg_000186",
+        "pg_000187"
+      ],
+      "settlement_ids": [
+        "STL-000182",
+        "STL-000183"
+      ],
+      "bank_transaction_ids": [
+        "BNK-75BB2AA146",
+        "BNK-41A5F60735"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000195"
+      ],
+      "settlement_ids": [
+        "STL-000191"
+      ],
+      "bank_transaction_ids": [
+        "BNK-DF98874BFE"
+      ],
+      "details": {
+        "expected_fee": "17.63",
+        "charged_fee": "21.99",
+        "difference": "4.36"
+      }
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000201"
+      ],
+      "settlement_ids": [
+        "STL-000197"
+      ],
+      "bank_transaction_ids": [
+        "BNK-68497EC6D1"
+      ],
+      "details": {
+        "settlement_net": "177.34",
+        "bank_amount": "177.25",
+        "difference": "0.09"
+      }
+    },
+    {
+      "scenario": "duplicate_bank_credit",
+      "payment_ids": [
+        "pg_000211"
+      ],
+      "settlement_ids": [
+        "STL-000207"
+      ],
+      "bank_transaction_ids": [
+        "BNK-F28E85140D",
+        "BNK-E197777F10"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "wrong_bank_reference",
+      "payment_ids": [
+        "pg_000224"
+      ],
+      "settlement_ids": [
+        "STL-000220"
+      ],
+      "bank_transaction_ids": [
+        "BNK-F1A7946320"
+      ],
+      "details": {
+        "correct_reference": "STL-000220",
+        "bank_reference": "STL-O00220"
+      }
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000227"
+      ],
+      "settlement_ids": [
+        "STL-000223"
+      ],
+      "bank_transaction_ids": [
+        "BNK-236992896E"
+      ],
+      "details": {
+        "expected_fee": "6.68",
+        "charged_fee": "7.21",
+        "difference": "0.53"
+      }
+    },
+    {
+      "scenario": "currency_mismatch",
+      "payment_ids": [
+        "pg_000229"
+      ],
+      "settlement_ids": [
+        "STL-000225"
+      ],
+      "bank_transaction_ids": [
+        "BNK-040308AA5E"
+      ],
+      "details": {
+        "expected_currency": "GBP",
+        "bank_currency": "USD"
+      }
+    },
+    {
+      "scenario": "missing_settlement",
+      "payment_ids": [
+        "pg_000231"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000234"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000243"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000250"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000252"
+      ],
+      "settlement_ids": [
+        "STL-000244"
+      ],
+      "bank_transaction_ids": [
+        "BNK-4D22AF711F"
+      ],
+      "details": {
+        "expected_fee": "47.91",
+        "charged_fee": "48.95",
+        "difference": "1.04"
+      }
+    },
+    {
+      "scenario": "missing_settlement",
+      "payment_ids": [
+        "pg_000254"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000276"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "duplicate_bank_credit",
+      "payment_ids": [
+        "pg_000279"
+      ],
+      "settlement_ids": [
+        "STL-000269"
+      ],
+      "bank_transaction_ids": [
+        "BNK-73D78C57D3",
+        "BNK-0D9E91A71C"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000300"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000304"
+      ],
+      "settlement_ids": [
+        "STL-000293"
+      ],
+      "bank_transaction_ids": [
+        "BNK-11249204C7"
+      ],
+      "details": {
+        "expected_fee": "58.28",
+        "charged_fee": "62.24",
+        "difference": "3.96"
+      }
+    },
+    {
+      "scenario": "duplicate_bank_credit",
+      "payment_ids": [
+        "pg_000313"
+      ],
+      "settlement_ids": [
+        "STL-000302"
+      ],
+      "bank_transaction_ids": [
+        "BNK-A0495743A2",
+        "BNK-80B66EDBF4"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000318"
+      ],
+      "settlement_ids": [
+        "STL-000307"
+      ],
+      "bank_transaction_ids": [
+        "BNK-58F3F8DEA4"
+      ],
+      "details": {
+        "settlement_net": "1809.58",
+        "bank_amount": "1808.30",
+        "difference": "1.28"
+      }
+    },
+    {
+      "scenario": "missing_bank_credit",
+      "payment_ids": [
+        "pg_000351"
+      ],
+      "settlement_ids": [
+        "STL-000340"
+      ],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "duplicate_payment",
+      "payment_ids": [
+        "pg_000359",
+        "pg_000360"
+      ],
+      "settlement_ids": [
+        "STL-000348",
+        "STL-000349"
+      ],
+      "bank_transaction_ids": [
+        "BNK-A3CAB63107",
+        "BNK-7CF5EDF382"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000363"
+      ],
+      "settlement_ids": [
+        "STL-000352"
+      ],
+      "bank_transaction_ids": [
+        "BNK-A3388C9751"
+      ],
+      "details": {
+        "settlement_net": "1557.30",
+        "bank_amount": "1555.73",
+        "difference": "1.57"
+      }
+    },
+    {
+      "scenario": "currency_mismatch",
+      "payment_ids": [
+        "pg_000368"
+      ],
+      "settlement_ids": [
+        "STL-000357"
+      ],
+      "bank_transaction_ids": [
+        "BNK-127387928A"
+      ],
+      "details": {
+        "expected_currency": "GBP",
+        "bank_currency": "USD"
+      }
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000379"
+      ],
+      "settlement_ids": [
+        "STL-000368"
+      ],
+      "bank_transaction_ids": [
+        "BNK-F76B2B78B9"
+      ],
+      "details": {
+        "expected_fee": "5.66",
+        "charged_fee": "8.83",
+        "difference": "3.17"
+      }
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000383"
+      ],
+      "settlement_ids": [
+        "STL-000372"
+      ],
+      "bank_transaction_ids": [
+        "BNK-8D65B90E94"
+      ],
+      "details": {
+        "expected_fee": "6.12",
+        "charged_fee": "9.46",
+        "difference": "3.34"
+      }
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000386"
+      ],
+      "settlement_ids": [
+        "STL-000375"
+      ],
+      "bank_transaction_ids": [
+        "BNK-7CA7A02A3D"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-29",
+        "delay_days": 10
+      }
+    },
+    {
+      "scenario": "wrong_bank_reference",
+      "payment_ids": [
+        "pg_000387"
+      ],
+      "settlement_ids": [
+        "STL-000376"
+      ],
+      "bank_transaction_ids": [
+        "BNK-E36552AC53"
+      ],
+      "details": {
+        "correct_reference": "STL-000376",
+        "bank_reference": "STL-O00376"
+      }
+    },
+    {
+      "scenario": "currency_mismatch",
+      "payment_ids": [
+        "pg_000390"
+      ],
+      "settlement_ids": [
+        "STL-000379"
+      ],
+      "bank_transaction_ids": [
+        "BNK-9A6AB19E15"
+      ],
+      "details": {
+        "expected_currency": "EUR",
+        "bank_currency": "USD"
+      }
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000392"
+      ],
+      "settlement_ids": [
+        "STL-000381"
+      ],
+      "bank_transaction_ids": [
+        "BNK-6781BD55D5"
+      ],
+      "details": {
+        "settlement_net": "428.62",
+        "bank_amount": "426.80",
+        "difference": "1.82"
+      }
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000399"
+      ],
+      "settlement_ids": [
+        "STL-000388"
+      ],
+      "bank_transaction_ids": [
+        "BNK-403948FE22"
+      ],
+      "details": {
+        "settlement_net": "360.77",
+        "bank_amount": "360.74",
+        "difference": "0.03"
+      }
+    },
+    {
+      "scenario": "duplicate_payment",
+      "payment_ids": [
+        "pg_000401",
+        "pg_000402"
+      ],
+      "settlement_ids": [
+        "STL-000390",
+        "STL-000391"
+      ],
+      "bank_transaction_ids": [
+        "BNK-8201E187D8",
+        "BNK-A9FFDA9A93"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000417"
+      ],
+      "settlement_ids": [
+        "STL-000406"
+      ],
+      "bank_transaction_ids": [
+        "BNK-6DA22C3D4F"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-22",
+        "delay_days": 10
+      }
+    },
+    {
+      "scenario": "missing_settlement",
+      "payment_ids": [
+        "pg_000445"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000467"
+      ],
+      "settlement_ids": [
+        "STL-000455"
+      ],
+      "bank_transaction_ids": [
+        "BNK-1A73DD3BC6"
+      ],
+      "details": {
+        "expected_fee": "42.17",
+        "charged_fee": "46.83",
+        "difference": "4.66"
+      }
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000469"
+      ],
+      "settlement_ids": [
+        "STL-000457"
+      ],
+      "bank_transaction_ids": [
+        "BNK-F7500A174E"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-28",
+        "delay_days": 12
+      }
+    },
+    {
+      "scenario": "duplicate_payment",
+      "payment_ids": [
+        "pg_000487",
+        "pg_000488"
+      ],
+      "settlement_ids": [
+        "STL-000475",
+        "STL-000476"
+      ],
+      "bank_transaction_ids": [
+        "BNK-B30BA6FE09",
+        "BNK-12D926FE41"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000492"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000505"
+      ],
+      "settlement_ids": [
+        "STL-000492"
+      ],
+      "bank_transaction_ids": [
+        "BNK-5D260CCFB4"
+      ],
+      "details": {
+        "expected_fee": "42.05",
+        "charged_fee": "46.51",
+        "difference": "4.46"
+      }
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000510"
+      ],
+      "settlement_ids": [
+        "STL-000497"
+      ],
+      "bank_transaction_ids": [
+        "BNK-78635A11F2"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-14",
+        "delay_days": 9
+      }
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000512"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "wrong_bank_reference",
+      "payment_ids": [
+        "pg_000514"
+      ],
+      "settlement_ids": [
+        "STL-000500"
+      ],
+      "bank_transaction_ids": [
+        "BNK-E37B6B911E"
+      ],
+      "details": {
+        "correct_reference": "STL-000500",
+        "bank_reference": "STL-O00500"
+      }
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000524"
+      ],
+      "settlement_ids": [
+        "STL-000510"
+      ],
+      "bank_transaction_ids": [
+        "BNK-E009FE4CDD"
+      ],
+      "details": {
+        "expected_fee": "14.51",
+        "charged_fee": "18.08",
+        "difference": "3.57"
+      }
+    },
+    {
+      "scenario": "wrong_bank_reference",
+      "payment_ids": [
+        "pg_000526"
+      ],
+      "settlement_ids": [
+        "STL-000512"
+      ],
+      "bank_transaction_ids": [
+        "BNK-F03ABF9C65"
+      ],
+      "details": {
+        "correct_reference": "STL-000512",
+        "bank_reference": "STL-O00512"
+      }
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000541"
+      ],
+      "settlement_ids": [
+        "STL-000527"
+      ],
+      "bank_transaction_ids": [
+        "BNK-46FF2F6883"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-27",
+        "delay_days": 7
+      }
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000548"
+      ],
+      "settlement_ids": [
+        "STL-000534"
+      ],
+      "bank_transaction_ids": [
+        "BNK-A261F6DFBE"
+      ],
+      "details": {
+        "settlement_net": "1250.78",
+        "bank_amount": "1250.60",
+        "difference": "0.18"
+      }
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000553"
+      ],
+      "settlement_ids": [
+        "STL-000539"
+      ],
+      "bank_transaction_ids": [
+        "BNK-275B249C2A"
+      ],
+      "details": {
+        "expected_fee": "16.44",
+        "charged_fee": "20.10",
+        "difference": "3.66"
+      }
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000565"
+      ],
+      "settlement_ids": [
+        "STL-000551"
+      ],
+      "bank_transaction_ids": [
+        "BNK-29B0C77002"
+      ],
+      "details": {
+        "settlement_net": "1469.35",
+        "bank_amount": "1469.09",
+        "difference": "0.26"
+      }
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000569"
+      ],
+      "settlement_ids": [
+        "STL-000555"
+      ],
+      "bank_transaction_ids": [
+        "BNK-499D1911A5"
+      ],
+      "details": {
+        "settlement_net": "1264.85",
+        "bank_amount": "1263.87",
+        "difference": "0.98"
+      }
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000581"
+      ],
+      "settlement_ids": [
+        "STL-000567"
+      ],
+      "bank_transaction_ids": [
+        "BNK-8500060D5A"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-20",
+        "delay_days": 7
+      }
+    },
+    {
+      "scenario": "wrong_bank_reference",
+      "payment_ids": [
+        "pg_000582"
+      ],
+      "settlement_ids": [
+        "STL-000568"
+      ],
+      "bank_transaction_ids": [
+        "BNK-4C7A211151"
+      ],
+      "details": {
+        "correct_reference": "STL-000568",
+        "bank_reference": "STL-O00568"
+      }
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000585"
+      ],
+      "settlement_ids": [
+        "STL-000571"
+      ],
+      "bank_transaction_ids": [
+        "BNK-C384408E98"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-30",
+        "delay_days": 8
+      }
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000588"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "duplicate_bank_credit",
+      "payment_ids": [
+        "pg_000604"
+      ],
+      "settlement_ids": [
+        "STL-000589"
+      ],
+      "bank_transaction_ids": [
+        "BNK-8711A1E557",
+        "BNK-7327AFBFF9"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000605"
+      ],
+      "settlement_ids": [
+        "STL-000590"
+      ],
+      "bank_transaction_ids": [
+        "BNK-618186722B"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-30",
+        "delay_days": 12
+      }
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000608"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "missing_bank_credit",
+      "payment_ids": [
+        "pg_000609"
+      ],
+      "settlement_ids": [
+        "STL-000593"
+      ],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "duplicate_bank_credit",
+      "payment_ids": [
+        "pg_000625"
+      ],
+      "settlement_ids": [
+        "STL-000609"
+      ],
+      "bank_transaction_ids": [
+        "BNK-CA531F04AF",
+        "BNK-2C7B874B4A"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000626"
+      ],
+      "settlement_ids": [
+        "STL-000610"
+      ],
+      "bank_transaction_ids": [
+        "BNK-93CEEF7261"
+      ],
+      "details": {
+        "settlement_net": "266.72",
+        "bank_amount": "264.84",
+        "difference": "1.88"
+      }
+    },
+    {
+      "scenario": "currency_mismatch",
+      "payment_ids": [
+        "pg_000631"
+      ],
+      "settlement_ids": [
+        "STL-000615"
+      ],
+      "bank_transaction_ids": [
+        "BNK-15560F1E2D"
+      ],
+      "details": {
+        "expected_currency": "USD",
+        "bank_currency": "EUR"
+      }
+    },
+    {
+      "scenario": "duplicate_bank_credit",
+      "payment_ids": [
+        "pg_000638"
+      ],
+      "settlement_ids": [
+        "STL-000622"
+      ],
+      "bank_transaction_ids": [
+        "BNK-9EF2EDCAB0",
+        "BNK-25ED3E2846"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "missing_settlement",
+      "payment_ids": [
+        "pg_000647"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000664"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000676"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000679"
+      ],
+      "settlement_ids": [
+        "STL-000660"
+      ],
+      "bank_transaction_ids": [
+        "BNK-11D1FCDEDD"
+      ],
+      "details": {
+        "settlement_net": "785.80",
+        "bank_amount": "784.82",
+        "difference": "0.98"
+      }
+    },
+    {
+      "scenario": "duplicate_bank_credit",
+      "payment_ids": [
+        "pg_000683"
+      ],
+      "settlement_ids": [
+        "STL-000664"
+      ],
+      "bank_transaction_ids": [
+        "BNK-7F9008CDC9",
+        "BNK-BA850B7073"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "wrong_bank_reference",
+      "payment_ids": [
+        "pg_000695"
+      ],
+      "settlement_ids": [
+        "STL-000676"
+      ],
+      "bank_transaction_ids": [
+        "BNK-E07F3EF59B"
+      ],
+      "details": {
+        "correct_reference": "STL-000676",
+        "bank_reference": "STL-O00676"
+      }
+    },
+    {
+      "scenario": "missing_settlement",
+      "payment_ids": [
+        "pg_000698"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000699"
+      ],
+      "settlement_ids": [
+        "STL-000679"
+      ],
+      "bank_transaction_ids": [
+        "BNK-B93487246C"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-28",
+        "delay_days": 8
+      }
+    },
+    {
+      "scenario": "missing_settlement",
+      "payment_ids": [
+        "pg_000703"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000711"
+      ],
+      "settlement_ids": [
+        "STL-000690"
+      ],
+      "bank_transaction_ids": [
+        "BNK-B32EF03A1B"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-21",
+        "delay_days": 10
+      }
+    },
+    {
+      "scenario": "missing_bank_credit",
+      "payment_ids": [
+        "pg_000730"
+      ],
+      "settlement_ids": [
+        "STL-000709"
+      ],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "missing_settlement",
+      "payment_ids": [
+        "pg_000732"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "missing_bank_credit",
+      "payment_ids": [
+        "pg_000735"
+      ],
+      "settlement_ids": [
+        "STL-000713"
+      ],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000736"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000742"
+      ],
+      "settlement_ids": [
+        "STL-000719"
+      ],
+      "bank_transaction_ids": [
+        "BNK-87CCA3A4C4"
+      ],
+      "details": {
+        "expected_fee": "54.30",
+        "charged_fee": "55.72",
+        "difference": "1.42"
+      }
+    },
+    {
+      "scenario": "currency_mismatch",
+      "payment_ids": [
+        "pg_000747"
+      ],
+      "settlement_ids": [
+        "STL-000724"
+      ],
+      "bank_transaction_ids": [
+        "BNK-CCED5E749B"
+      ],
+      "details": {
+        "expected_currency": "GBP",
+        "bank_currency": "USD"
+      }
+    },
+    {
+      "scenario": "missing_bank_credit",
+      "payment_ids": [
+        "pg_000773"
+      ],
+      "settlement_ids": [
+        "STL-000750"
+      ],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "duplicate_payment",
+      "payment_ids": [
+        "pg_000776",
+        "pg_000777"
+      ],
+      "settlement_ids": [
+        "STL-000753",
+        "STL-000754"
+      ],
+      "bank_transaction_ids": [
+        "BNK-238BBF1B30",
+        "BNK-D65253B6F7"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "missing_settlement",
+      "payment_ids": [
+        "pg_000781"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000786"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000790"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000803"
+      ],
+      "settlement_ids": [
+        "STL-000777"
+      ],
+      "bank_transaction_ids": [
+        "BNK-23C596FAB7"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-09",
+        "delay_days": 10
+      }
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000811"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "wrong_bank_reference",
+      "payment_ids": [
+        "pg_000824"
+      ],
+      "settlement_ids": [
+        "STL-000797"
+      ],
+      "bank_transaction_ids": [
+        "BNK-51ED850A6D"
+      ],
+      "details": {
+        "correct_reference": "STL-000797",
+        "bank_reference": "STL-O00797"
+      }
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000827"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "missing_bank_credit",
+      "payment_ids": [
+        "pg_000835"
+      ],
+      "settlement_ids": [
+        "STL-000807"
+      ],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "wrong_bank_reference",
+      "payment_ids": [
+        "pg_000843"
+      ],
+      "settlement_ids": [
+        "STL-000815"
+      ],
+      "bank_transaction_ids": [
+        "BNK-E07606FA34"
+      ],
+      "details": {
+        "correct_reference": "STL-000815",
+        "bank_reference": "STL-O00815"
+      }
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000844"
+      ],
+      "settlement_ids": [
+        "STL-000816"
+      ],
+      "bank_transaction_ids": [
+        "BNK-4A0C78947B"
+      ],
+      "details": {
+        "settlement_net": "943.28",
+        "bank_amount": "942.36",
+        "difference": "0.92"
+      }
+    },
+    {
+      "scenario": "duplicate_payment",
+      "payment_ids": [
+        "pg_000846",
+        "pg_000847"
+      ],
+      "settlement_ids": [
+        "STL-000818",
+        "STL-000819"
+      ],
+      "bank_transaction_ids": [
+        "BNK-88188889CE",
+        "BNK-5A947DEFCF"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "missing_bank_credit",
+      "payment_ids": [
+        "pg_000876"
+      ],
+      "settlement_ids": [
+        "STL-000848"
+      ],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "missing_settlement",
+      "payment_ids": [
+        "pg_000884"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "missing_bank_credit",
+      "payment_ids": [
+        "pg_000904"
+      ],
+      "settlement_ids": [
+        "STL-000875"
+      ],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000920"
+      ],
+      "settlement_ids": [
+        "STL-000891"
+      ],
+      "bank_transaction_ids": [
+        "BNK-5E6A1C701B"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-14",
+        "delay_days": 7
+      }
+    },
+    {
+      "scenario": "duplicate_bank_credit",
+      "payment_ids": [
+        "pg_000924"
+      ],
+      "settlement_ids": [
+        "STL-000895"
+      ],
+      "bank_transaction_ids": [
+        "BNK-34B6AC1C8E",
+        "BNK-F230C7809B"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000929"
+      ],
+      "settlement_ids": [
+        "STL-000900"
+      ],
+      "bank_transaction_ids": [
+        "BNK-0D0F0A6450"
+      ],
+      "details": {
+        "settlement_net": "676.18",
+        "bank_amount": "674.75",
+        "difference": "1.43"
+      }
+    },
+    {
+      "scenario": "missing_bank_credit",
+      "payment_ids": [
+        "pg_000930"
+      ],
+      "settlement_ids": [
+        "STL-000901"
+      ],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "duplicate_bank_credit",
+      "payment_ids": [
+        "pg_000942"
+      ],
+      "settlement_ids": [
+        "STL-000913"
+      ],
+      "bank_transaction_ids": [
+        "BNK-975FA18468",
+        "BNK-F3EDDCAC0A"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "bank_amount_mismatch",
+      "payment_ids": [
+        "pg_000948"
+      ],
+      "settlement_ids": [
+        "STL-000919"
+      ],
+      "bank_transaction_ids": [
+        "BNK-CEBC633D6C"
+      ],
+      "details": {
+        "settlement_net": "783.90",
+        "bank_amount": "782.79",
+        "difference": "1.11"
+      }
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000955"
+      ],
+      "settlement_ids": [
+        "STL-000926"
+      ],
+      "bank_transaction_ids": [
+        "BNK-6C82BA0FED"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-14",
+        "delay_days": 7
+      }
+    },
+    {
+      "scenario": "duplicate_payment",
+      "payment_ids": [
+        "pg_000957",
+        "pg_000958"
+      ],
+      "settlement_ids": [
+        "STL-000928",
+        "STL-000929"
+      ],
+      "bank_transaction_ids": [
+        "BNK-64D7C8F02C",
+        "BNK-150B961346"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "failed_payment",
+      "payment_ids": [
+        "pg_000971"
+      ],
+      "settlement_ids": [],
+      "bank_transaction_ids": [],
+      "details": {}
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000985"
+      ],
+      "settlement_ids": [
+        "STL-000955"
+      ],
+      "bank_transaction_ids": [
+        "BNK-263ED5E52E"
+      ],
+      "details": {
+        "expected_fee": "32.57",
+        "charged_fee": "36.47",
+        "difference": "3.9"
+      }
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_000990"
+      ],
+      "settlement_ids": [
+        "STL-000960"
+      ],
+      "bank_transaction_ids": [
+        "BNK-87E67410DE"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-28",
+        "delay_days": 9
+      }
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000991"
+      ],
+      "settlement_ids": [
+        "STL-000961"
+      ],
+      "bank_transaction_ids": [
+        "BNK-A69E418884"
+      ],
+      "details": {
+        "expected_fee": "16.62",
+        "charged_fee": "21.15",
+        "difference": "4.53"
+      }
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_000992"
+      ],
+      "settlement_ids": [
+        "STL-000962"
+      ],
+      "bank_transaction_ids": [
+        "BNK-4DE1878E93"
+      ],
+      "details": {
+        "expected_fee": "50.34",
+        "charged_fee": "51.85",
+        "difference": "1.51"
+      }
+    },
+    {
+      "scenario": "duplicate_payment",
+      "payment_ids": [
+        "pg_000995",
+        "pg_000996"
+      ],
+      "settlement_ids": [
+        "STL-000965",
+        "STL-000966"
+      ],
+      "bank_transaction_ids": [
+        "BNK-6CB9FC829F",
+        "BNK-81FCA91028"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "delayed_settlement",
+      "payment_ids": [
+        "pg_001001"
+      ],
+      "settlement_ids": [
+        "STL-000971"
+      ],
+      "bank_transaction_ids": [
+        "BNK-7236FC1C46"
+      ],
+      "details": {
+        "expected_booking_date": "2026-10-30",
+        "delay_days": 10
+      }
+    },
+    {
+      "scenario": "fee_discrepancy",
+      "payment_ids": [
+        "pg_001008"
+      ],
+      "settlement_ids": [
+        "STL-000978"
+      ],
+      "bank_transaction_ids": [
+        "BNK-BDD1B22E3C"
+      ],
+      "details": {
+        "expected_fee": "24.22",
+        "charged_fee": "25.65",
+        "difference": "1.43"
+      }
+    },
+    {
+      "scenario": "wrong_bank_reference",
+      "payment_ids": [
+        "pg_001009"
+      ],
+      "settlement_ids": [
+        "STL-000979"
+      ],
+      "bank_transaction_ids": [
+        "BNK-927B2E60E1"
+      ],
+      "details": {
+        "correct_reference": "STL-000979",
+        "bank_reference": "STL-O00979"
+      }
+    },
+    {
+      "scenario": "bank_only_charge",
+      "payment_ids": [],
+      "settlement_ids": [],
+      "bank_transaction_ids": [
+        "BNK-219B0FCAA7"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "bank_only_charge",
+      "payment_ids": [],
+      "settlement_ids": [],
+      "bank_transaction_ids": [
+        "BNK-23C30F3C69"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "bank_only_charge",
+      "payment_ids": [],
+      "settlement_ids": [],
+      "bank_transaction_ids": [
+        "BNK-A281383447"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "unexplained_bank_credit",
+      "payment_ids": [],
+      "settlement_ids": [],
+      "bank_transaction_ids": [
+        "BNK-73C2FD6177"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "unexplained_bank_credit",
+      "payment_ids": [],
+      "settlement_ids": [],
+      "bank_transaction_ids": [
+        "BNK-DD2623B91A"
+      ],
+      "details": {}
+    },
+    {
+      "scenario": "malformed_record",
+      "payment_ids": [],
+      "settlement_ids": [],
+      "bank_transaction_ids": [
+        "BNK-CC16DD58AF"
+      ],
+      "details": {
+        "file": "bank_statement.csv",
+        "row": 642,
+        "column": "amount",
+        "reason": "amount is not a number"
+      }
+    },
+    {
+      "scenario": "malformed_record",
+      "payment_ids": [],
+      "settlement_ids": [],
+      "bank_transaction_ids": [
+        "BNK-689FA38F4B"
+      ],
+      "details": {
+        "file": "bank_statement.csv",
+        "row": 398,
+        "column": "booking_date",
+        "reason": "booking date does not exist"
+      }
+    },
+    {
+      "scenario": "malformed_record",
+      "payment_ids": [],
+      "settlement_ids": [],
+      "bank_transaction_ids": [
+        "BNK-65E6766B0A"
+      ],
+      "details": {
+        "file": "bank_statement.csv",
+        "row": 348,
+        "column": "currency",
+        "reason": "currency is missing"
+      }
+    }
+  ]
+}
