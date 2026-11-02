@@ -30,9 +30,11 @@ from starlette.concurrency import run_in_threadpool
 from finrecon.v1 import approvals_pb2 as approvals_pb
 from finrecon.v1 import cases_pb2 as cases_pb
 from finrecon.v1 import identity_pb2 as identity_pb
+from finrecon.v1 import users_pb2 as users_pb
 from finrecon.v1.approvals_connect import ApprovalServiceASGIApplication
 from finrecon.v1.cases_connect import CaseServiceASGIApplication
 from finrecon.v1.identity_connect import IdentityServiceASGIApplication
+from finrecon.v1.users_connect import UserServiceASGIApplication
 from finrecon_ai import telemetry
 from finrecon_ai.api.deps import Runtime, authenticate
 from finrecon_ai.api.errors import status_for
@@ -51,6 +53,7 @@ from finrecon_ai.api.schemas import (
 from finrecon_ai.authz import Actor
 from finrecon_ai.db.enums import CaseStatus, Severity
 from finrecon_ai.log import get_logger
+from finrecon_ai.users import service as user_admin
 
 log = get_logger(__name__)
 M = TypeVar("M", bound=Message)
@@ -284,6 +287,49 @@ class ApprovalService(_Service):
         return await self._call(ctx, work)
 
 
+def _account(user) -> dict[str, Any]:
+    return {"id": user.id, "email": user.email, "full_name": user.full_name,
+            "roles": sorted(r.name.value for r in user.roles), "active": user.is_active,
+            "has_password": user.password_hash is not None, "created_at": user.created_at}
+
+
+class UserService(_Service):
+    async def list_accounts(self, request: users_pb.ListAccountsRequest,
+                            ctx: RequestContext) -> users_pb.ListAccountsResponse:
+        return await self._call(ctx, lambda session, actor, _: to_message(
+            {"accounts": [_account(u) for u in user_admin.list_accounts(session, actor)]},
+            users_pb.ListAccountsResponse))
+
+    async def create_user(self, request: users_pb.CreateUserRequest,
+                          ctx: RequestContext) -> users_pb.CreateUserResponse:
+        def work(session: Session, actor: Actor, _: BackgroundTasks):
+            user = user_admin.create_user(session, actor, email=request.email, full_name=request.full_name,
+                                          roles=list(request.roles), password=request.password)
+            return to_message({"account": _account(user)}, users_pb.CreateUserResponse)
+
+        return await self._call(ctx, work)
+
+    async def update_user(self, request: users_pb.UpdateUserRequest,
+                          ctx: RequestContext) -> users_pb.UpdateUserResponse:
+        user_id = _id(request.user_id, "user_id")
+
+        def work(session: Session, actor: Actor, _: BackgroundTasks):
+            user = user_admin.update_user(
+                session, actor, user_id, full_name=_optional(request, "full_name"),
+                roles=list(request.roles.roles) if request.HasField("roles") else None,
+                active=_optional(request, "active"))
+            return to_message({"account": _account(user)}, users_pb.UpdateUserResponse)
+
+        return await self._call(ctx, work)
+
+    async def set_password(self, request: users_pb.SetPasswordRequest,
+                           ctx: RequestContext) -> users_pb.SetPasswordResponse:
+        user_id = _id(request.user_id, "user_id")
+        return await self._call(ctx, lambda session, actor, _: to_message(
+            {"account": _account(user_admin.set_password(session, actor, user_id, request.password))},
+            users_pb.SetPasswordResponse))
+
+
 class TelemetryInterceptor:
     """Names the request's OpenTelemetry span after the RPC and records the Connect error code, for every call,
     including requests refused before a service method runs."""
@@ -303,4 +349,5 @@ def rpc_applications(rt: Runtime) -> list:
     interceptors = [TelemetryInterceptor()]
     return [IdentityServiceASGIApplication(IdentityService(rt), interceptors=interceptors),
             CaseServiceASGIApplication(CaseService(rt), interceptors=interceptors),
-            ApprovalServiceASGIApplication(ApprovalService(rt), interceptors=interceptors)]
+            ApprovalServiceASGIApplication(ApprovalService(rt), interceptors=interceptors),
+            UserServiceASGIApplication(UserService(rt), interceptors=interceptors)]

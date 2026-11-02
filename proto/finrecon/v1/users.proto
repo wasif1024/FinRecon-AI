@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package finrecon.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// User administration for the caller's tenant; needs the admin role (user:manage). Role changes and deactivation
+// apply at once, to tokens already issued. An admin cannot deactivate themselves or drop their own admin role, and
+// the last active admin cannot be removed (INVALID_ARGUMENT, with the reason). Every change
+// is audited; passwords never are.
+service UserService {
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // FAILED_PRECONDITION when the email already has an account in the tenant.
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  // Only the fields that are set change.
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  // At least 12 characters. Tokens already issued stay valid until they expire; deactivate to cut them off.
+  rpc SetPassword(SetPasswordRequest) returns (SetPasswordResponse);
+}
+
+message Account {
+  string id = 1;
+  string email = 2;
+  string full_name = 3;
+  repeated string roles = 4; // analyst, manager, admin, auditor
+  bool active = 5;
+  bool has_password = 6;
+  google.protobuf.Timestamp created_at = 7;
+}
+
+message ListAccountsRequest {}
+
+message ListAccountsResponse {
+  repeated Account accounts = 1;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string full_name = 2;
+  repeated string roles = 3;
+  string password = 4;
+}
+
+message CreateUserResponse {
+  Account account = 1;
+}
+
+// The new roles, wrapped so that an unset field (no change) differs from an empty list (refused).
+message RoleSet {
+  repeated string roles = 1;
+}
+
+message UpdateUserRequest {
+  string user_id = 1;
+  optional string full_name = 2;
+  RoleSet roles = 3;
+  optional bool active = 4;
+}
+
+message UpdateUserResponse {
+  Account account = 1;
+}
+
+message SetPasswordRequest {
+  string user_id = 1;
+  string password = 2;
+}
+
+message SetPasswordResponse {
+  Account account = 1;
+}

@@ -1,6 +1,7 @@
 """Connect/gRPC services: the same flows and rules as the REST API, over protobuf (no network, no Claude)."""
 
 import asyncio
+from datetime import UTC, datetime
 import struct
 import uuid
 
@@ -95,8 +96,8 @@ def test_case_list_and_detail_match_rest(client, case_ids):
     detail = call(client, "CaseService", "GetCase", cs.GetCaseRequest(case_id=case_id), cs.GetCaseResponse,
                   headers).detail
     rest = client.get(f"/cases/{case_id}", headers=headers).json()
-    assert (detail.case_number, detail.status, detail.created_at.ToDatetime().date().isoformat()) == \
-        (rest["case_number"], enums_pb2.CASE_STATUS_NEW, rest["created_at"][:10])
+    assert (detail.case_number, detail.status) == (rest["case_number"], enums_pb2.CASE_STATUS_NEW)
+    assert detail.created_at.ToDatetime(tzinfo=UTC) == datetime.fromisoformat(rest["created_at"]), "the same instant"
     assert [t.amount for t in detail.transactions] == [t["amount"] for t in rest["transactions"]]
     assert [t.id for t in detail.transactions] == [t["id"] for t in rest["transactions"]]
     assert json_format.MessageToDict(detail.exception.details) == rest["exception"]["details"]

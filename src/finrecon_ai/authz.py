@@ -27,6 +27,7 @@ class Permission(StrEnum):
     RECONCILE_RUN = "reconcile:run"
     AUDIT_READ = "audit:read"  # SRS §5.2 (managers review audit history), §5.4 (auditors)
     AGENT_METRICS_READ = "agent:metrics"  # agent reliability, cost and grounding (SRS §5.3 system health, §13)
+    USER_MANAGE = "user:manage"  # add users, change roles, deactivate, set passwords (SRS §5.3 user management)
 
 
 ROLE_PERMISSIONS: dict[RoleName, frozenset[Permission]] = {
@@ -37,7 +38,7 @@ ROLE_PERMISSIONS: dict[RoleName, frozenset[Permission]] = {
                                  Permission.DATA_IMPORT, Permission.RECONCILE_RUN, Permission.AUDIT_READ,
                                  Permission.AGENT_METRICS_READ}),
     RoleName.ADMIN: frozenset({Permission.CASE_READ, Permission.POLICY_READ, Permission.POLICY_MANAGE,
-                               Permission.AGENT_METRICS_READ}),
+                               Permission.AGENT_METRICS_READ, Permission.USER_MANAGE}),
     RoleName.AUDITOR: frozenset({Permission.CASE_READ, Permission.POLICY_READ, Permission.AUDIT_READ,
                                  Permission.AGENT_METRICS_READ}),
 }

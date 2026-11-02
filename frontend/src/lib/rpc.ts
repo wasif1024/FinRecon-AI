@@ -9,6 +9,7 @@ import { connection } from "next/server";
 import { ApprovalService } from "@/gen/finrecon/v1/approvals_pb";
 import { CaseService } from "@/gen/finrecon/v1/cases_pb";
 import { IdentityService } from "@/gen/finrecon/v1/identity_pb";
+import { UserService } from "@/gen/finrecon/v1/users_pb";
 import { ApiError } from "@/lib/api/client";
 import { getToken } from "@/lib/session";
 
@@ -95,5 +96,6 @@ export async function rpc() {
     identity: guarded(createClient(IdentityService, transport)),
     cases: guarded(createClient(CaseService, transport)),
     approvals: guarded(createClient(ApprovalService, transport)),
+    users: guarded(createClient(UserService, transport)),
   };
 }

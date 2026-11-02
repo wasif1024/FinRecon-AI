@@ -42,7 +42,7 @@ flowchart LR
 
 - **The browser only talks to the dashboard.** The API token lives in an httpOnly cookie on the Next.js server,
   which calls the API server-to-server.
-- **One API process, three protocols.** The case work (identity, cases, workflow, approvals) has a typed contract in
+- **One API process, three protocols.** The case work (identity, cases, workflow, approvals, user administration) has a typed contract in
   [`proto/finrecon/v1`](../proto/finrecon/v1), served as Connect and gRPC beside the REST API on the same port.
   Each RPC calls the same function as its REST endpoint, so there is one implementation of every rule.
 - **Agent runs happen inside the API process.** A case workflow is a LangGraph graph whose agent steps are LangChain

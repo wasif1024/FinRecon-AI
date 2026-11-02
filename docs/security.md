@@ -11,6 +11,7 @@ How FinRecon AI meets SRS §11. Each control names where it lives and which test
 | No account enumeration | Same 401 for unknown tenant/user, inactive user, wrong password; a hash is always verified to equalise timing | `test_api.py::test_bad_logins_look_identical` |
 | Account lockout | 5 failures in 15 min since the last success, counted from the append-only audit log: shared by all API processes and kept across restarts | `test_api.py::test_lockout_is_shared…` |
 | Fail-closed authorization | Permissions granted per role; anything not granted is denied; the system actor cannot work or decide cases | `test_authz.py`, `test_cases.py` |
+| User administration | Admins only (`user:manage`), own tenant only; changes apply to issued tokens; no self-deactivation, no removing your own admin role, never the last admin; audited without passwords | `test_user_admin.py` |
 | Separation of duties | Whoever started an investigation cannot decide its recommendation; one immutable decision per request | `test_approvals.py` |
 | Same rules over RPC | The Connect/gRPC services (`api/rpc.py`) authenticate the same bearer token and call the same functions as the REST endpoints, so roles, tenancy, validation, lockout and audit are shared, not re-implemented | `test_rpc.py` |
 

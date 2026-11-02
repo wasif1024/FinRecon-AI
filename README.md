@@ -120,6 +120,7 @@ Next.js app that keeps the API token in an httpOnly cookie on its own server and
 | Policies | everyone (upload: admins) | search the policy library the agents cite |
 | Reports | everyone | five FR-11 reports, CSV (formula-safe) and PDF export, per-currency totals |
 | Audit trail | managers, auditors | filter events, verify the hash chain |
+| Users | admins | add colleagues, change roles, deactivate and reactivate, set passwords |
 
 ## REST API
 
@@ -150,8 +151,8 @@ characters) in `.env`; the API will not start without it.
 
 The case work is also an RPC API, defined once in [proto/finrecon/v1](proto/finrecon/v1) and managed with
 [Buf](https://buf.build): `IdentityService` (Login, GetMe, ListUsers), `CaseService` (list, detail, assign,
-transition, notes, start investigation, workflow status, case audit trail) and `ApprovalService` (pending
-approvals, decide). The dashboard's server calls these over Connect in binary protobuf, so the frontend and
+transition, notes, start investigation, workflow status, case audit trail), `ApprovalService` (pending
+approvals, decide) and `UserService` (accounts, create, update roles and status, set password; admins). The dashboard's server calls these over Connect in binary protobuf, so the frontend and
 backend share one typed contract instead of two hand-kept ones.
 
 `finrecon serve` runs Hypercorn, which speaks HTTP/1.1 and cleartext HTTP/2 on one port, so the same services
@@ -379,6 +380,14 @@ Cases follow the SRS lifecycle (`src/finrecon_ai/cases/lifecycle.py`); every cha
 and audited. Analysts work cases assigned to them, managers assign and work any case, admins and auditors
 read only. Decisions out of `awaiting_approval` are reserved for the approval workflow (Phase 4).
 Permissions are fail-closed (`src/finrecon_ai/authz.py`).
+
+**Users.** Admins manage their tenant's users on the dashboard's *Users* page (`UserService` over Connect/gRPC,
+`users/service.py`): add a user with roles and an initial password, change roles, deactivate or reactivate, set a
+password. Roles are read from the database on every request, so a role change or deactivation applies to tokens
+already issued; a password change does not end existing sessions (deactivate to do that). An admin cannot
+deactivate themselves or drop their own admin role, and the last active admin cannot be removed. Every change is
+audited (`user.created`, `user.roles_changed`, `user.deactivated`, `user.password_set`, ...), never a password. The
+CLI still works for the first admin's password: `uv run finrecon users set-password admin@demo.finrecon.dev`.
 
 `manifest.json` lists every planted problem (fee discrepancies, duplicates, missing records, malformed rows, ...).
 It is the ground truth for matching tests and agent evaluations. Re-importing the same file is skipped.

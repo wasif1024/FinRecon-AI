@@ -8,6 +8,7 @@ from finrecon_ai.errors import NotFound
 from finrecon_ai.ingestion.service import IngestionError
 from finrecon_ai.policies.parsing import DocumentRejected
 from finrecon_ai.reconciliation.service import ReconciliationError
+from finrecon_ai.users.service import UserConflict, UserError
 from finrecon_ai.workflows.case_investigation import WorkflowError
 
 # Most specific first. Service messages are safe to show: they never contain other tenants' data.
@@ -18,10 +19,12 @@ ERROR_STATUS: list[tuple[type[Exception], int]] = [
     (WorkflowError, 409),
     (ExecutionError, 409),
     (ApprovalError, 409),
+    (UserConflict, 409),
     (CaseError, 422),
     (IngestionError, 422),
     (ReconciliationError, 422),
     (DocumentRejected, 422),
+    (UserError, 422),
 ]
 
 
