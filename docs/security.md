@@ -41,7 +41,8 @@ attacker who can run arbitrary SQL, who could change the setting; that is preven
 - Agent output is verified before it is stored: cited IDs must come from that run's tool results; unbacked facts
   become marked hypotheses; amounts come from the matching engine. Nothing an agent produces executes without a
   human decision, and execution follows fixed plans that never move money.
-- Prompts tell agents that tool output and documents are data, never instructions (prompt-injection tests: 4d).
+- Prompts tell agents that tool output and documents are data, never instructions. Case data reaches the model only
+  inside tool results; titles and reviewer comments are framed as data with their angle brackets neutralised.
 
 ## Data handling
 
@@ -50,3 +51,34 @@ attacker who can run arbitrary SQL, who could change the setting; that is preven
 - Application logs carry IDs and counts only; secret-looking values are masked. Unexpected API errors return a
   generic body with the request ID, never internals.
 - Uploaded files are size- and type-checked before parsing; corrupt, encrypted and zip-bomb documents are refused.
+
+## Security test suite (`tests/security/`)
+
+Run with `uv run pytest tests/security`. The scripted tests use a fake model that obeys every injection, to prove
+the safeguards hold even when an agent is fully fooled.
+
+| File | Attacks |
+|---|---|
+| `test_prompt_injection.py` | Instructions planted in a payment description, a policy document, a case title and a reviewer comment; fully fooled agents inventing approvals and policy |
+| `test_approval_bypass.py` | Direct status changes by every role, wrong-channel transitions, forged and replayed resumes, decisions borrowed from another recommendation, superseded requests, self-approval with every role |
+| `test_tool_abuse.py` | Tools aimed at another case or tenant, SQL payloads in tool inputs, write attempts, oversized results |
+| `test_api_attacks.py` | SQL payloads in query parameters, login and notes; every read and write endpoint with another tenant's IDs |
+| `test_hostile_uploads.py` | Deep-nested JSON, oversized CSV fields, NUL bytes, bad encodings, encrypted PDFs, DOCX zip bombs, path traversal in file names, oversized uploads |
+
+`test_real_model_flags_injection` runs the real agents on a poisoned case and checks that the model reports the
+planted instruction and is not steered by it. It calls Claude (about $0.50), so it runs only with
+`FINRECON_LIVE_TESTS=1 uv run pytest -m live`.
+
+### Found and fixed by this suite
+
+- A deeply nested JSON file, a CSV field above the CSV module's size limit, and NUL characters (which PostgreSQL
+  cannot store) crashed an import instead of failing it cleanly. They now fail the batch, or for an escaped NUL in
+  one JSON record, reject only that record.
+- A reviewer comment containing `</reviewer_comment>`, or a source ID inside a case title, could break out of the
+  framing that marks it as data in an agent's message.
+
+### Open items
+
+- CSV and spreadsheet exports (Phase 5) must neutralise values starting with `=`, `+`, `-` or `@`: imported data
+  is stored verbatim and can contain formulas.
+- Separate database role for the API (Phase 6), see Tenant isolation above.

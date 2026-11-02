@@ -41,6 +41,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "live: calls the real Claude API (costs money); runs only with FINRECON_LIVE_TESTS=1",
+]
 filterwarnings = [
     # In-memory Qdrant (tests only) ignores payload indexes; the server uses them.
     "ignore:Payload indexes have no effect in the local Qdrant:UserWarning",

@@ -219,8 +219,8 @@ def _investigate(deps: WorkflowDeps, state: CaseState) -> dict[str, Any]:
     brief = "Investigate this case."
     if decision:
         brief = ("A manager returned this case for further investigation. Their comment, as written: "
-                 f"<reviewer_comment>{decision.get('comment', '')}</reviewer_comment>. Earlier findings are "
-                 "recorded on the case (get_case_findings); address the comment and investigate again.")
+                 f"<reviewer_comment>{as_data(decision.get('comment') or '')}</reviewer_comment>. Earlier findings "
+                 "are recorded on the case (get_case_findings); address the comment and investigate again.")
     return _run(deps, state, AgentName.INVESTIGATION, brief, lambda session, ctx, result: persist_findings(
         session, ctx, result.execution, result.output.evidence, result.output.findings), "investigation_execution_id")
 
@@ -320,8 +320,9 @@ def _run(deps: WorkflowDeps, state: CaseState, agent: AgentName, brief: str, per
         exception = session.get(ReconciliationException, case.exception_id)
         ctx = ToolContext(session=session, tenant_id=case.tenant_id, case=case, exception=exception,
                           policy_store=deps.policy_store)
-        user_content = (f"Case {case.case_number} ({exception.category}, priority {case.priority}): "
-                        f"{case.title}\n\n{brief}")
+        # The title is built from source IDs, which come from imported files: mark it as data.
+        user_content = (f"Case {case.case_number} ({exception.category}, priority {case.priority}). "
+                        f"<case_title>{as_data(case.title)}</case_title>\n\n{brief}")
         try:
             result = run_agent(session, spec=load_prompt(agent), ctx=ctx, user_content=user_content, client=deps.llm)
         except AgentFailed as exc:
@@ -335,6 +336,11 @@ def _run(deps: WorkflowDeps, state: CaseState, agent: AgentName, brief: str, per
         if persisted.recommendation_id:
             update["persisted"] = persisted
         return update
+
+
+def as_data(text: str) -> str:
+    """Neutralise angle brackets so embedded text cannot close or open the tags that frame it as data."""
+    return text.replace("<", "‹").replace(">", "›")
 
 
 def _load(session: Session, state: CaseState):

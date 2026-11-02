@@ -18,7 +18,7 @@ from finrecon_ai.db.enums import ActorType, ImportBatchStatus, IngestionMethod
 from finrecon_ai.db.models import FinancialSource, ImportBatch, Transaction
 from finrecon_ai.ingestion.mappings import SourceMapping
 from finrecon_ai.ingestion.normalizer import RecordRejected, fingerprint, normalize_record
-from finrecon_ai.ingestion.parsers import FileRejected, parse_file, to_json_safe
+from finrecon_ai.ingestion.parsers import FileRejected, contains_nul, parse_file, to_json_safe
 from finrecon_ai.db.tenancy import bind_tenant
 from finrecon_ai.errors import NotFound
 from finrecon_ai.log import get_logger
@@ -99,6 +99,10 @@ def ingest_file(
     try:
         for row_number, raw in parse_file(content, source.ingestion_method, mapping):
             total += 1
+            if contains_nul(raw):
+                errors.append({"row": row_number, "errors": [{"field": None, "column": None,
+                                                              "error": "record contains a NUL character"}]})
+                continue
             try:
                 txn = normalize_record(raw, mapping)
             except RecordRejected as exc:
