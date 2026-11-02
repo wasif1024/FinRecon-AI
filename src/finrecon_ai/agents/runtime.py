@@ -50,6 +50,9 @@ from finrecon_ai.tracing import tracing_enabled
 log = get_logger(__name__)
 
 MAX_TOOL_RESULT_CHARS = 20_000
+# So `/workpapers` exists from a case's first run (the manual says to start by listing it).
+WORKPAPERS_README = "/workpapers/README.md"
+WORKPAPERS_NOTE = "Working papers for this case: one note per agent and round. Not evidence.\n"
 
 # Agents investigate; they never run commands, and every subagent is declared in a prompt manifest with its own
 # tool allow-list (no general-purpose subagent inheriting all tools). Registered for Anthropic models, which is
@@ -97,10 +100,11 @@ def run_agent(
     agent = build_deep_agent(spec, client, ctx, workspace=workspace, audit_for=lambda subagent: [
         ToolAuditMiddleware(session, ctx, execution, tool_calls, subagent=subagent)])
     agent_input: dict[str, Any] = {"messages": [{"role": "user", "content": user_content}]}
+    files = {**spec.files, WORKPAPERS_README: WORKPAPERS_NOTE} if spec.files else {}
     if workspace is None:  # the run's own state: the manual and playbooks go in with the first message
-        agent_input["files"] = {path: create_file_data(text) for path, text in spec.files.items()}
-    elif spec.files:
-        seed(workspace, spec.files)  # a case's sandbox: replace any earlier (or edited) copy with this version's
+        agent_input["files"] = {path: create_file_data(text) for path, text in files.items()}
+    elif files:
+        seed(workspace, files)  # a case's sandbox: replace any earlier (or edited) copy with this version's
 
     observer = RunObserver(manifest.model)
     trace_id = uuid.uuid4()

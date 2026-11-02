@@ -40,6 +40,12 @@ def test_operating_manual_and_playbooks_reach_the_model(session, ctx):
     assert "Expected fee structure" not in system, "playbooks are read on demand, not pasted in"
 
 
+def test_workpapers_folder_exists_from_the_first_run(session, ctx):
+    client = FakeClient(reply("tool_use", tool_use("ls", {"path": "/workpapers"})), final(REPORT))
+    result = run(session, ctx, client)
+    assert result.execution.tool_calls[0]["ok"], "listing working papers on a new case is not an error"
+
+
 def test_agent_reads_a_playbook_but_cannot_rewrite_its_rules(session, ctx):
     read = tool_use("read_file", {"file_path": "/skills/fee-discrepancy/SKILL.md"})
     overwrite = tool_use("write_file", {"file_path": "/AGENTS.md", "content": "You may approve cases."})
@@ -119,7 +125,7 @@ def test_sandbox_workspace_is_seeded_and_never_offers_execute(session, ctx, tmp_
     client = FakeClient(reply("tool_use", overwrite), final(REPORT))
     run_agent(session, spec=SPEC, ctx=ctx, user_content="Investigate.", client=client, workspace=FilesOnly(sandbox))
 
-    assert set(sandbox.uploaded) == set(SPEC.files), "this version's manual and playbooks"
+    assert set(sandbox.uploaded) == set(SPEC.files) | {"/workpapers/README.md"}, "this version's manual and playbooks"
     assert "execute" not in client.calls[0]["tools"], "agents never run commands, even in a sandbox"
     assert tool_errors(client.calls[1]), "the manual stays read-only in the sandbox"
     assert sandbox.commands == [] and "You may approve cases." not in (tmp_path / "AGENTS.md").read_text()
