@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense, type ReactNode } from "react";
 
+import { CaseActions } from "@/components/case/actions/case-actions";
 import { PriorityBadge, StatusBadge } from "@/components/case/badges";
 import { EvidenceList } from "@/components/case/evidence";
 import { Findings } from "@/components/case/findings";
@@ -68,6 +69,9 @@ async function CaseView({ params }: { params: PageProps<"/cases/[id]">["params"]
           </Section>
         </div>
         <div className="space-y-6">
+          <Section title="Actions" description="What you can do on this case now.">
+            <CaseActions detail={detail} workflow={workflow} users={users} />
+          </Section>
           <Section title="Exception" description={`Rule ${detail.exception.rule_code ?? "—"}`}>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
               <dt className="text-muted-foreground">Category</dt><dd>{humanize(detail.exception.category)}</dd>

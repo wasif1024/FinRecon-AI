@@ -211,6 +211,24 @@ class ApprovalRequestOut(Out):
     created_at: datetime
 
 
+class TransitionOption(BaseModel):
+    to_status: CaseStatus
+    requires_comment: bool
+    closure_reasons: list[ClosureReason]
+
+
+class CaseActionsOut(BaseModel):
+    """What the current user may do on this case now. A UI hint computed from the same rules the API enforces."""
+
+    can_assign: bool
+    can_add_note: bool
+    can_investigate: bool
+    transitions: list[TransitionOption]
+    pending_approval_request_id: uuid.UUID | None
+    can_decide: bool
+    decide_blocked_reason: str | None
+
+
 class CaseDetailOut(CaseSummaryOut):
     closure_reason: ClosureReason | None
     resolved_at: datetime | None
@@ -223,6 +241,7 @@ class CaseDetailOut(CaseSummaryOut):
     recommendations: list[RecommendationOut]
     approval_requests: list[ApprovalRequestOut]
     decisions: list[DecisionOut]
+    actions: CaseActionsOut
 
 
 class AssignIn(In):

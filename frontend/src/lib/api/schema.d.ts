@@ -293,7 +293,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Case Audit */
+        /**
+         * Case Audit
+         * @description Everything that happened to the case, including events recorded against its recommendations, approval
+         *     requests and agent runs (resolution.executed, approval.decided, agent.tool_invoked ...).
+         */
         get: operations["case_audit_cases__case_id__audit_get"];
         put?: never;
         post?: never;
@@ -501,6 +505,26 @@ export interface components {
             /** File */
             file: string;
         };
+        /**
+         * CaseActionsOut
+         * @description What the current user may do on this case now. A UI hint computed from the same rules the API enforces.
+         */
+        CaseActionsOut: {
+            /** Can Assign */
+            can_assign: boolean;
+            /** Can Add Note */
+            can_add_note: boolean;
+            /** Can Investigate */
+            can_investigate: boolean;
+            /** Transitions */
+            transitions: components["schemas"]["TransitionOption"][];
+            /** Pending Approval Request Id */
+            pending_approval_request_id: string | null;
+            /** Can Decide */
+            can_decide: boolean;
+            /** Decide Blocked Reason */
+            decide_blocked_reason: string | null;
+        };
         /** CaseDetailOut */
         CaseDetailOut: {
             /**
@@ -545,6 +569,7 @@ export interface components {
             approval_requests: components["schemas"]["ApprovalRequestOut"][];
             /** Decisions */
             decisions: components["schemas"]["DecisionOut"][];
+            actions: components["schemas"]["CaseActionsOut"];
         };
         /** CaseListOut */
         CaseListOut: {
@@ -1051,6 +1076,14 @@ export interface components {
             /** Comment */
             comment?: string | null;
             closure_reason?: components["schemas"]["ClosureReason"] | null;
+        };
+        /** TransitionOption */
+        TransitionOption: {
+            to_status: components["schemas"]["CaseStatus"];
+            /** Requires Comment */
+            requires_comment: boolean;
+            /** Closure Reasons */
+            closure_reasons: components["schemas"]["ClosureReason"][];
         };
         /** UserOut */
         UserOut: {

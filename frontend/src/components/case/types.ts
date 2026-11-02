@@ -10,6 +10,7 @@ export type Recommendation = S["RecommendationOut"];
 export type AuditEvent = S["AuditEventOut"];
 export type Workflow = S["WorkflowOut"];
 export type User = S["UserOut"];
+export type PendingApproval = S["PendingApprovalOut"];
 
 /** Display names for user IDs, built once per page from GET /users. */
 export type Names = Map<string, string>;

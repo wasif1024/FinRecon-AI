@@ -8,6 +8,7 @@ from finrecon_ai.api.deps import Runtime, current_actor, get_session, runtime
 from finrecon_ai.api.schemas import (
     AssignIn,
     AuditEventOut,
+    CaseActionsOut,
     CaseDetailOut,
     CaseListOut,
     CaseSummaryOut,
@@ -17,11 +18,13 @@ from finrecon_ai.api.schemas import (
     NoteIn,
     TransactionOut,
     TransitionIn,
+    TransitionOption,
     WorkflowOut,
 )
 from finrecon_ai.authz import Actor, Permission
+from finrecon_ai.cases.lifecycle import TRANSITIONS, allowed_closure_reasons
 from finrecon_ai.cases.service import add_note, assign_case, get_case, require_assignment, transition_case
-from finrecon_ai.db.enums import CaseStatus, Severity
+from finrecon_ai.db.enums import ApprovalRequestStatus, CaseStatus, Severity
 from finrecon_ai.db.models import (
     AgentExecutionRecord,
     ApprovalDecision,
@@ -101,7 +104,37 @@ def case_detail(case_id: uuid.UUID, actor: Actor = Depends(current_actor), sessi
         "approval_requests": requests,
         "decisions": session.scalars(select(ApprovalDecision).where(
             ApprovalDecision.approval_request_id.in_([r.id for r in requests]))).all(),
+        "actions": _actions(actor, case, requests),
     })
+
+
+def _actions(actor: Actor, case: InvestigationCase, requests: list[ApprovalRequest]) -> CaseActionsOut:
+    open_case = case.status is not CaseStatus.CLOSED
+    may_work = actor.can(Permission.CASE_WORK) and (actor.can(Permission.CASE_WORK_ANY)
+                                                    or case.assigned_to == actor.user_id)
+    transitions = [
+        TransitionOption(to_status=target, requires_comment=rule.requires_comment,
+                         closure_reasons=sorted(allowed_closure_reasons(case.status)) if target is CaseStatus.CLOSED
+                         else [])
+        for target, rule in TRANSITIONS[case.status].items()
+        if not (rule.approval_only or rule.executor_only) and actor.can(rule.permission) and may_work
+    ]
+    pending = next((r for r in requests if r.status is ApprovalRequestStatus.PENDING), None)
+    blocked = None
+    if pending is not None and actor.can(Permission.CASE_DECIDE):
+        if pending.requested_by_user_id == actor.user_id:
+            blocked = "You started this investigation, so another manager must decide it."
+        elif pending.required_role not in actor.roles:
+            blocked = f"Deciding requires the {pending.required_role} role."
+    return CaseActionsOut(
+        can_assign=actor.can(Permission.CASE_ASSIGN) and open_case,
+        can_add_note=may_work and open_case,
+        can_investigate=may_work and case.status in STARTABLE,
+        transitions=transitions,
+        pending_approval_request_id=pending.id if pending else None,
+        can_decide=pending is not None and actor.can(Permission.CASE_DECIDE) and blocked is None,
+        decide_blocked_reason=blocked,
+    )
 
 
 @router.post("/{case_id}/assign", response_model=CaseSummaryOut)

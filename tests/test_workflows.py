@@ -295,12 +295,12 @@ def test_pipeline_records_deterministic_agents(session, small_dataset_dir):
     state = run_pipeline(unit_of_work, tenant.id, sources)
     assert state["cases_opened"] > 0 and len(state["batch_ids"]) == 3
 
-    records = session.scalars(select(AgentExecutionRecord).where(AgentExecutionRecord.tenant_id == tenant.id)
-                              .order_by(AgentExecutionRecord.started_at)).all()
-    assert [(r.agent_name, r.status, r.model) for r in records] == [
-        (AgentName.INGESTION, AgentExecutionStatus.COMPLETED, None),
-        (AgentName.RECONCILIATION, AgentExecutionStatus.COMPLETED, None)]
-    assert str(records[1].run_id) == state["run_id"]
+    # now() is fixed within the test transaction, so compare by agent rather than by start time.
+    records = {r.agent_name: r for r in session.scalars(
+        select(AgentExecutionRecord).where(AgentExecutionRecord.tenant_id == tenant.id))}
+    assert set(records) == {AgentName.INGESTION, AgentName.RECONCILIATION}
+    assert all(r.status is AgentExecutionStatus.COMPLETED and r.model is None for r in records.values())
+    assert str(records[AgentName.RECONCILIATION].run_id) == state["run_id"]
 
 
 def test_policy_passage_seen_only_through_earlier_findings_can_be_cited(session, world, fee_case, make_deps):

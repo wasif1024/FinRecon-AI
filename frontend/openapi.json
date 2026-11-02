@@ -817,6 +817,7 @@
           "cases"
         ],
         "summary": "Case Audit",
+        "description": "Everything that happened to the case, including events recorded against its recommendations, approval\nrequests and agent runs (resolution.executed, approval.decided, agent.tool_invoked ...).",
         "operationId": "case_audit_cases__case_id__audit_get",
         "security": [
           {
@@ -1487,6 +1488,68 @@
         ],
         "title": "Body_upload_policies_post"
       },
+      "CaseActionsOut": {
+        "properties": {
+          "can_assign": {
+            "type": "boolean",
+            "title": "Can Assign"
+          },
+          "can_add_note": {
+            "type": "boolean",
+            "title": "Can Add Note"
+          },
+          "can_investigate": {
+            "type": "boolean",
+            "title": "Can Investigate"
+          },
+          "transitions": {
+            "items": {
+              "$ref": "#/components/schemas/TransitionOption"
+            },
+            "type": "array",
+            "title": "Transitions"
+          },
+          "pending_approval_request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Approval Request Id"
+          },
+          "can_decide": {
+            "type": "boolean",
+            "title": "Can Decide"
+          },
+          "decide_blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decide Blocked Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "can_assign",
+          "can_add_note",
+          "can_investigate",
+          "transitions",
+          "pending_approval_request_id",
+          "can_decide",
+          "decide_blocked_reason"
+        ],
+        "title": "CaseActionsOut",
+        "description": "What the current user may do on this case now. A UI hint computed from the same rules the API enforces."
+      },
       "CaseDetailOut": {
         "properties": {
           "id": {
@@ -1632,6 +1695,9 @@
             },
             "type": "array",
             "title": "Decisions"
+          },
+          "actions": {
+            "$ref": "#/components/schemas/CaseActionsOut"
           }
         },
         "type": "object",
@@ -1655,7 +1721,8 @@
           "evidence",
           "recommendations",
           "approval_requests",
-          "decisions"
+          "decisions",
+          "actions"
         ],
         "title": "CaseDetailOut"
       },
@@ -2981,6 +3048,31 @@
           "to_status"
         ],
         "title": "TransitionIn"
+      },
+      "TransitionOption": {
+        "properties": {
+          "to_status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "requires_comment": {
+            "type": "boolean",
+            "title": "Requires Comment"
+          },
+          "closure_reasons": {
+            "items": {
+              "$ref": "#/components/schemas/ClosureReason"
+            },
+            "type": "array",
+            "title": "Closure Reasons"
+          }
+        },
+        "type": "object",
+        "required": [
+          "to_status",
+          "requires_comment",
+          "closure_reasons"
+        ],
+        "title": "TransitionOption"
       },
       "UserOut": {
         "properties": {

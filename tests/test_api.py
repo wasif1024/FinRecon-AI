@@ -271,6 +271,26 @@ def test_case_list_detail_and_note(client, case_ids):
     assert note.status_code == 201 and note.json()["evidence_type"] == "analyst_note"
 
 
+def test_case_actions_reflect_role_assignment_and_lifecycle(client, world, case_ids):
+    case_id = str(case_ids[0])
+    manager, analyst, auditor = (auth(client, r) for r in (RoleName.MANAGER, RoleName.ANALYST, RoleName.AUDITOR))
+    m = client.get(f"/cases/{case_id}", headers=manager).json()["actions"]
+    assert m["can_assign"] and m["can_investigate"] and m["can_add_note"]
+    assert {t["to_status"] for t in m["transitions"]} == {"investigating", "closed"}
+    closing = next(t for t in m["transitions"] if t["to_status"] == "closed")
+    assert closing["requires_comment"] and closing["closure_reasons"] == ["false_positive", "not_actionable"]
+
+    a = client.get(f"/cases/{case_id}", headers=analyst).json()["actions"]
+    assert not (a["can_assign"] or a["can_investigate"] or a["can_add_note"] or a["transitions"]), "not assigned"
+    client.post(f"/cases/{case_id}/assign", json={"assignee_id": str(world[2][RoleName.ANALYST].user_id)},
+                headers=manager)
+    a = client.get(f"/cases/{case_id}", headers=analyst).json()["actions"]
+    assert a["can_investigate"] and not a["can_assign"]
+
+    r = client.get(f"/cases/{case_id}", headers=auditor).json()["actions"]
+    assert not any([r["can_assign"], r["can_add_note"], r["can_investigate"], r["transitions"], r["can_decide"]])
+
+
 def test_service_errors_map_to_http(client, case_ids):
     headers = auth(client, RoleName.MANAGER)
     case_id = str(case_ids[0])
@@ -307,6 +327,10 @@ def test_investigate_then_approve_over_http(session, world, case_ids, client, sc
     workflow = client.get(f"/cases/{case.id}/workflow", headers=manager).json()
     assert workflow["paused_for_approval"] and workflow["approval_request_id"]
     assert client.post(f"/cases/{case.id}/investigate", headers=manager).status_code == 409
+
+    starter = client.get(f"/cases/{case.id}", headers=manager).json()["actions"]
+    assert not starter["can_decide"] and "another manager" in starter["decide_blocked_reason"]
+    assert client.get(f"/cases/{case.id}", headers=approver_headers).json()["actions"]["can_decide"]
 
     pending = client.get("/approvals", headers=approver_headers).json()
     assert [p["case_number"] for p in pending] == [case.case_number]
