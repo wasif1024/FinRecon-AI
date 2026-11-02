@@ -1,7 +1,7 @@
 # FinRecon AI
 ## Software Requirements Specification (SRS)
 
-**Version:** 1.3  
+**Version:** 1.4  
 **Date:** November 2026  
 **Project:** FinRecon AI – Agentic Financial Reconciliation & Investigation Platform  
 **Status:** Revised Requirements Baseline
@@ -14,8 +14,9 @@
 |---|---|---|
 | 1.0 | November 2026 | Initial requirements baseline. |
 | 1.1 | November 2026 | Agent orchestration confirmed as LangGraph on Python. Redis removed from the stack. Claude API confirmed as the sole LLM provider. |
-| 1.3 | November 2026 | Deep Agents standards (§7): one LangSmith sandbox per case as the agents' file workspace (no code execution), an operating-manual memory and per-category playbook skills, smaller models for narrow subagents, coordinator agents on the LangGraph Agent Server (operations assistant with a background batch investigator), and recovery of interrupted runs (§8). |
 | 1.2 | November 2026 | Agent stack made explicit: LLM agents are built with LangChain Deep Agents on LangChain (ChatAnthropic, LangChain tools) inside the LangGraph workflow; LangSmith is required for tracing, monitoring and evaluation (§7, §8, §9, §13). |
+| 1.3 | November 2026 | Deep Agents standards (§7): one LangSmith sandbox per case as the agents' file workspace (no code execution), an operating-manual memory and per-category playbook skills, smaller models for narrow subagents, coordinator agents on the LangGraph Agent Server (operations assistant with a background batch investigator), and recovery of interrupted runs (§8). |
+| 1.4 | November 2026 | Communication made specific: the case work (identity, cases, investigation workflow, approvals) is a Connect RPC / gRPC contract in protobuf, managed with Buf, used by the dashboard's server; REST remains for external clients, file transfer and the remaining pages. |
 
 ---
 
@@ -511,8 +512,10 @@ A typical reconciliation workflow:
 - Financial operations dashboard.
 
 ## Communication
-- REST APIs.
-- Connect RPC / gRPC for internal service communication where useful.
+- REST APIs: the public API (OpenAPI), file uploads and downloads, and the read-only insight pages.
+- Connect RPC / gRPC for internal service communication: the case work contract (`proto/finrecon/v1`, managed with
+  Buf) between the dashboard's server and the API, served as Connect and gRPC on the API's port. Agents run out of
+  process on the LangGraph Agent Server, reached through its own API.
 
 ## Observability
 - OpenTelemetry.

@@ -12,6 +12,7 @@ How FinRecon AI meets SRS §11. Each control names where it lives and which test
 | Account lockout | 5 failures in 15 min since the last success, counted from the append-only audit log: shared by all API processes and kept across restarts | `test_api.py::test_lockout_is_shared…` |
 | Fail-closed authorization | Permissions granted per role; anything not granted is denied; the system actor cannot work or decide cases | `test_authz.py`, `test_cases.py` |
 | Separation of duties | Whoever started an investigation cannot decide its recommendation; one immutable decision per request | `test_approvals.py` |
+| Same rules over RPC | The Connect/gRPC services (`api/rpc.py`) authenticate the same bearer token and call the same functions as the REST endpoints, so roles, tenancy, validation, lockout and audit are shared, not re-implemented | `test_rpc.py` |
 
 ## Tenant isolation (two layers)
 
@@ -49,13 +50,16 @@ attacker who can run arbitrary SQL, who could change the setting; that is preven
 - Secrets come from the environment (`.env`, never committed). The API refuses to start without a 32+ character
   `JWT_SECRET`.
 - Application logs carry IDs and counts only; secret-looking values are masked. Unexpected API errors return a
-  generic body with the request ID, never internals.
+  generic body with the request ID, never internals; over RPC they are `INTERNAL` with the message "internal
+  error" (connect-python would otherwise send the exception text), and another tenant's case is `NOT_FOUND`, like
+  a missing one (`test_rpc.py`).
 - Uploaded files are size- and type-checked before parsing; corrupt, encrypted and zip-bomb documents are refused.
 - CSV report exports neutralise cells a spreadsheet would execute (leading `=`, `+`, `-`, `@`, tab, carriage
   return) with a leading quote, while genuine negative amounts stay numbers (`reports/service.py::safe_cell`,
   `test_reports.py`).
 - The dashboard keeps the API token in an httpOnly cookie on the Next.js server; browser JavaScript never sees it,
-  and downloads and live-progress polling go through server-side route handlers.
+  and downloads and live-progress polling go through server-side route handlers. Its Connect calls are made from
+  that server too; the browser never calls the RPC services, so they need no CORS.
 
 ## Security test suite (`tests/security/`)
 
