@@ -131,7 +131,7 @@ def investigate_case(deps: WorkflowDeps, checkpointer: Any, actor: Actor, case_i
             raise WorkflowError(f"case is {case.status}; investigation can start only from new or investigating")
 
     graph = build_case_graph(deps, checkpointer)
-    config = {"configurable": {"thread_id": thread_id_for(case_id)}}
+    config = _run_config(actor.tenant_id, case_id, "case_investigation")
     if graph.get_state(config).next:
         raise WorkflowError("this case's workflow is already running or waiting for a decision")
     with log_context(case_id=case_id, workflow=WORKFLOW_VERSION):
@@ -144,7 +144,7 @@ def investigate_case(deps: WorkflowDeps, checkpointer: Any, actor: Actor, case_i
 def resume_case(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID, decision: dict[str, Any]) -> WorkflowResult:
     """Continue a paused workflow with a reviewer's decision. Called by the approval service (Phase 4)."""
     graph = build_case_graph(deps, checkpointer)
-    config = {"configurable": {"thread_id": thread_id_for(case_id)}}
+    config = _run_config(None, case_id, f"case_resume:{decision.get('decision')}")
     if graph.get_state(config).next != ("await_decision",):
         raise WorkflowError("this case's workflow is not waiting for a decision")
     with log_context(case_id=case_id, workflow=WORKFLOW_VERSION):
@@ -194,6 +194,15 @@ def resume_decided(deps: WorkflowDeps, checkpointer: Any, tenant_id: uuid.UUID) 
             resume_case(deps, checkpointer, case_id, payload)
             resumed.append(case_id)
     return resumed
+
+
+def _run_config(tenant_id: uuid.UUID | None, case_id: uuid.UUID, run_name: str) -> dict[str, Any]:
+    """Thread for checkpoints, plus the name, tags and metadata LangSmith shows for this run."""
+    metadata = {"case_id": str(case_id), "workflow": WORKFLOW_VERSION}
+    if tenant_id is not None:
+        metadata["tenant_id"] = str(tenant_id)
+    return {"configurable": {"thread_id": thread_id_for(case_id)}, "run_name": run_name,
+            "tags": ["finrecon", WORKFLOW_VERSION], "metadata": metadata}
 
 
 def workflow_state(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID) -> tuple[tuple[str, ...], dict]:

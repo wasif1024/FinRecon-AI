@@ -124,13 +124,16 @@ def _get_match_explanation(ctx: ToolContext, _: _NoInput) -> dict[str, Any]:
     ).all()
     result = []
     for match in matches:
-        members = ctx.session.scalars(select(transaction_match_items.c.transaction_id)
-                                      .where(transaction_match_items.c.match_id == match.id)).all()
-        for member in members:
-            ctx.remember("transaction", member)
+        members = ctx.session.execute(
+            select(Transaction.id, Transaction.source_transaction_id)
+            .join(transaction_match_items, transaction_match_items.c.transaction_id == Transaction.id)
+            .where(transaction_match_items.c.match_id == match.id)).all()
+        for member, source_id in members:
+            ctx.remember("transaction", member, source_id)
         result.append({"match_id": str(match.id), "classification": match.classification,
                        "strategy": match.strategy, "score": str(match.score),
-                       "transaction_ids": [str(m) for m in members], "explanation": match.explanation})
+                       "transactions": [{"id": str(m), "source_transaction_id": sid} for m, sid in members],
+                       "explanation": match.explanation})
     return {"matches": result,
             "note": None if result else "no match involves these transactions; they were never paired"}
 
@@ -237,18 +240,27 @@ def _get_case_findings(ctx: ToolContext, _: _NoInput) -> dict[str, Any]:
     """Findings earlier agents (or analysts) recorded on this case, with the evidence each one cites."""
     evidence = ctx.session.scalars(select(InvestigationEvidence).where(InvestigationEvidence.case_id == ctx.case.id)
                                    .order_by(InvestigationEvidence.created_at)).all()
+    source_ids = dict(ctx.session.execute(
+        select(Transaction.id, Transaction.source_transaction_id)
+        .where(Transaction.id.in_({e.transaction_id for e in evidence if e.transaction_id}))).all())
+    case_numbers = dict(ctx.session.execute(
+        select(InvestigationCase.id, InvestigationCase.case_number)
+        .where(InvestigationCase.id.in_({e.related_case_id for e in evidence if e.related_case_id}))).all())
     shown = []
     for item in evidence:
+        # Later agents cite earlier evidence by the IDs people use (pg_…, STL-…, CASE-…) as often as by UUID.
         if item.transaction_id:
-            ctx.remember("transaction", item.transaction_id)
+            ctx.remember("transaction", item.transaction_id, source_ids.get(item.transaction_id))
         if item.related_case_id:
-            ctx.remember("historical_case", item.related_case_id)
+            ctx.remember("historical_case", item.related_case_id, case_numbers.get(item.related_case_id))
         if item.evidence_type is EvidenceType.POLICY_PASSAGE and item.source_reference.get("chunk_id"):
             ctx.remember("policy_passage", item.source_reference["chunk_id"], details={
                 **item.source_reference, "document_id": str(item.policy_document_id)})
         shown.append({"evidence_id": str(item.id), "type": item.evidence_type,
                       "transaction_id": str(item.transaction_id) if item.transaction_id else None,
+                      "source_transaction_id": source_ids.get(item.transaction_id),
                       "related_case_id": str(item.related_case_id) if item.related_case_id else None,
+                      "related_case_number": case_numbers.get(item.related_case_id),
                       "source_reference": item.source_reference, "note": item.excerpt})
     findings = ctx.session.execute(
         select(InvestigationFinding, AgentExecutionRecord.agent_name)

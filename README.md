@@ -118,6 +118,43 @@ uv run finrecon approvals decide CASE-000008 --decision approve   # a different 
 
 Prompts are versioned files in `src/finrecon_ai/agents/prompts/` (see the README there).
 
+## Tracing, monitoring and evaluation
+
+**Tracing (LangSmith).** With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` set, every workflow run is one
+trace in the `LANGSMITH_PROJECT` project: the LangGraph nodes, each agent (`agent:investigation`, tagged with its
+prompt version, case and tenant), each tool call and each Claude call with tokens and latency. Each
+`agent_execution_records.langsmith_run_id` links the database record to its trace. Set `LANGSMITH_HIDE_CONTENT=true`
+to send structure, timings and tokens without inputs or outputs (use it before real customer data reaches the
+system). Tests never send traces.
+
+**Monitoring.** The dashboard's *Agent performance* page (`GET /metrics/agents?days=30`; managers, admins,
+auditors) compares each agent and prompt version: runs, success rate, p50/p95 latency, tokens, estimated cost,
+tool errors, runs whose output failed evidence verification, and what reviewers decided.
+
+**Evaluation.** The synthetic generator plants each problem on purpose, so every scenario has a known root
+cause. `src/finrecon_ai/evals/` turns that into a LangSmith dataset (`finrecon-agent-scenarios`, one example per
+scenario, with the acceptable resolutions, the governing policy and the root cause). An experiment runs the real
+workflow on a fresh `eval-*` tenant and grades each case:
+
+| Evaluator | Checks |
+|---|---|
+| `completed` | The workflow reached the approval step |
+| `resolution_acceptable` | The proposed resolution is one reviewers would accept for this scenario |
+| `grounded` | No cited evidence had to be dropped or downgraded |
+| `cites_expected_policy` | The governing policy was cited |
+| `checked_engine_evidence` | The agents looked at the case's transactions |
+| `no_fraud_determination` | No finding or recommendation declares fraud |
+| `root_cause_identified` | Claude as judge: the explanation matches the planted root cause |
+
+```bash
+uv run finrecon eval dataset                          # create/refresh the dataset (free)
+uv run finrecon eval run                              # all 13 scenarios, calls Claude (~$5)
+uv run finrecon eval run --scenario fee_discrepancy --prefix fee-v2
+```
+
+Results appear under *Datasets & Experiments* in LangSmith; compare experiments before releasing a new prompt
+version.
+
 ## Policy documents
 
 Policies and procedures (PDF, DOCX, TXT, Markdown) are split by section, embedded locally with fastembed

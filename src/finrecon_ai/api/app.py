@@ -18,6 +18,7 @@ from finrecon_ai.api.routes import (
     auth,
     cases,
     health,
+    metrics,
     policies,
     reconciliation,
     reports,
@@ -61,6 +62,9 @@ def create_app(settings: Settings | None = None, rt: Runtime | None = None) -> F
     settings = settings or get_settings()
     if rt is None:
         configure_logging(settings.log_level, settings.log_format, settings.log_file or None)
+        from finrecon_ai.tracing import configure_tracing
+
+        configure_tracing(settings)
         rt = default_runtime(settings)
     if len(rt.jwt_secret or "") < MIN_SECRET_LENGTH:
         raise RuntimeError(f"JWT_SECRET must be set to at least {MIN_SECRET_LENGTH} characters")
@@ -89,7 +93,7 @@ def create_app(settings: Settings | None = None, rt: Runtime | None = None) -> F
     for error_type, status_code in ERROR_STATUS:
         app.add_exception_handler(error_type, _handler(status_code))
 
-    for module in (health, auth, users, sources, reconciliation, cases, approvals, policies, reports, audit):
+    for module in (health, auth, users, sources, reconciliation, cases, approvals, policies, reports, metrics, audit):
         app.include_router(module.router)
     return app
 

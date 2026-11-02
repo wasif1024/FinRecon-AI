@@ -3,6 +3,7 @@ investigate | workflow | approvals | pipeline | users | serve."""
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -165,6 +166,14 @@ def main(argv: list[str] | None = None) -> int:
     pipeline = commands.add_parser("pipeline", help="ingest -> reconcile -> open cases as one workflow")
     pipeline.add_argument("--dir", type=Path, default=Path("data/synthetic"))
 
+    evals = commands.add_parser("eval", help="LangSmith evaluation of the agent workflow")
+    eval_commands = evals.add_subparsers(dest="eval_command", required=True)
+    eval_commands.add_parser("dataset", help="create or refresh the scenario dataset in LangSmith (no Claude calls)")
+    eval_run = eval_commands.add_parser("run", help="run an experiment over every planted scenario (calls Claude, "
+                                        "~$5 for all 13; creates a fresh eval-* tenant)")
+    eval_run.add_argument("--scenario", action="append", help="limit to these scenarios (repeatable)")
+    eval_run.add_argument("--prefix", default="baseline", help="experiment name prefix")
+
     args = parser.parse_args(argv)
     _setup_logging()
     with log_context(correlation_id=new_correlation_id(), command=args.command):
@@ -184,6 +193,9 @@ def _setup_logging() -> None:
     try:
         settings = get_settings()
         configure_logging(settings.log_level, settings.log_format, settings.log_file or None)
+        from finrecon_ai.tracing import configure_tracing
+
+        configure_tracing(settings)
     except Exception:  # e.g. generate-data without a .env: still log to the terminal
         configure_logging()
 
@@ -191,6 +203,9 @@ def _setup_logging() -> None:
 def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if args.command == "prompts":
         return _prompts(args)
+
+    if args.command == "eval":
+        return _eval(args)
 
     if args.command == "openapi":
         from finrecon_ai.api.app import create_app
@@ -584,6 +599,25 @@ def _agents_try(session: Session, tenant: Tenant, case_number: str) -> int:
     print(json.dumps(result.output.model_dump(mode="json"), indent=2))
     print(f"\n{spec.ref} | {len(e.tool_calls)} tool calls: {[c['tool'] for c in e.tool_calls]} | "
           f"tokens in {e.input_tokens}, out {e.output_tokens} | execution {e.id}", file=sys.stderr)
+    return 0
+
+
+def _eval(args: argparse.Namespace) -> int:
+    from langsmith import Client
+
+    from finrecon_ai.evals.run import DATASET, run_experiment, sync_dataset
+
+    if not os.environ.get("LANGSMITH_API_KEY"):
+        print("set LANGSMITH_API_KEY (and LANGSMITH_TRACING=true) in .env first", file=sys.stderr)
+        return 1
+    if args.eval_command == "dataset":
+        sync_dataset(Client())
+        print(f"dataset {DATASET} is up to date")
+        return 0
+    name, scores = run_experiment(args.scenario, args.prefix)
+    print(f"experiment {name}")
+    for key, (mean, n) in sorted(scores.items()):
+        print(f"  {key:<26} {mean:6.2f}  (n={n})")
     return 0
 
 

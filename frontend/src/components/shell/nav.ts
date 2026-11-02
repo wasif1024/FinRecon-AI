@@ -1,4 +1,4 @@
-import { BarChart3, ClipboardCheck, FileText, FolderSearch, LayoutDashboard, ScrollText, Upload } from "lucide-react";
+import { Activity, BarChart3, ClipboardCheck, FileText, FolderSearch, LayoutDashboard, ScrollText, Upload } from "lucide-react";
 
 export type NavItem = {
   href: string;
@@ -15,5 +15,6 @@ export const NAV: NavItem[] = [
   { href: "/data", label: "Data & runs", icon: Upload, permission: "data:import", ready: true },
   { href: "/policies", label: "Policies", icon: FileText, permission: "policy:read", ready: true },
   { href: "/reports", label: "Reports", icon: BarChart3, permission: "case:read", ready: true },
+  { href: "/agents", label: "Agent performance", icon: Activity, permission: "agent:metrics", ready: true },
   { href: "/audit", label: "Audit trail", icon: ScrollText, permission: "audit:read", ready: true },
 ];

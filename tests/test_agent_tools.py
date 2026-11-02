@@ -6,8 +6,14 @@ import pytest
 from sqlalchemy import select
 
 from finrecon_ai.agents.tools import TOOLS, ToolContext, ToolError, run_tool
-from finrecon_ai.db.enums import ExceptionCategory
-from finrecon_ai.db.models import InvestigationCase, ReconciliationException, Tenant, Transaction
+from finrecon_ai.db.enums import EvidenceType, ExceptionCategory, RoleName
+from finrecon_ai.db.models import (
+    InvestigationCase,
+    InvestigationEvidence,
+    ReconciliationException,
+    Tenant,
+    Transaction,
+)
 
 
 def context(session, tenant_id, category: ExceptionCategory) -> ToolContext:
@@ -90,6 +96,37 @@ def test_similar_cases_exclude_current_case(fee_ctx):
     assert similar["category"] == "fee_discrepancy" and ids
     assert str(fee_ctx.case.id) not in ids
     assert ids <= fee_ctx.seen["historical_case"]
+
+
+def test_case_findings_let_a_later_agent_cite_earlier_evidence_by_readable_id(fee_ctx, session, world):
+    """Regression: later agents cited cases and transactions an earlier agent recorded, by CASE-…/STL-…, and they
+    were dropped as unverified."""
+    other = session.scalars(select(InvestigationCase).where(InvestigationCase.tenant_id == fee_ctx.tenant_id,
+                                                            InvestigationCase.id != fee_ctx.case.id)).first()
+    analyst = world[2][RoleName.ANALYST].user_id
+    session.add(InvestigationEvidence(tenant_id=fee_ctx.tenant_id, case_id=fee_ctx.case.id,
+                                      evidence_type=EvidenceType.HISTORICAL_CASE, related_case_id=other.id,
+                                      collected_by_user_id=analyst))
+    txn = session.scalars(select(Transaction).where(Transaction.tenant_id == fee_ctx.tenant_id)).first()
+    session.add(InvestigationEvidence(tenant_id=fee_ctx.tenant_id, case_id=fee_ctx.case.id,
+                                      evidence_type=EvidenceType.TRANSACTION, transaction_id=txn.id,
+                                      collected_by_user_id=analyst))
+    session.flush()
+
+    shown = call(fee_ctx, "get_case_findings")["evidence"]
+    assert {e["related_case_number"] for e in shown} >= {other.case_number}
+    assert {e["source_transaction_id"] for e in shown} >= {txn.source_transaction_id}
+    assert fee_ctx.resolve("historical_case", other.case_number) == str(other.id)
+    assert fee_ctx.resolve("transaction", txn.source_transaction_id) == str(txn.id)
+
+
+def test_match_members_can_be_cited_by_source_id(fee_ctx):
+    """Regression: an agent cited the matched settlement as STL-… from get_match_explanation and it was dropped."""
+    matches = call(fee_ctx, "get_match_explanation")["matches"]
+    members = [t for m in matches for t in m["transactions"]]
+    assert members
+    for t in members:
+        assert fee_ctx.resolve("transaction", t["source_transaction_id"]) == t["id"]
 
 
 def test_seen_tracks_only_returned_ids(fee_ctx, session):

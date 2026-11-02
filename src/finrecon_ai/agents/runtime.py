@@ -6,6 +6,8 @@ audited; every tool call is audited too (FR-12). The caller commits.
 
 import json
 import time
+
+import langsmith as ls
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -22,6 +24,7 @@ from finrecon_ai.audit import record_event
 from finrecon_ai.db.enums import ActorType, AgentExecutionStatus
 from finrecon_ai.db.models import AgentExecutionRecord
 from finrecon_ai.log import get_logger, log_context
+from finrecon_ai.tracing import tracing_enabled
 
 log = get_logger(__name__)
 
@@ -77,9 +80,18 @@ def run_agent(
     }
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
     tool_calls: list[dict[str, Any]] = []
-    with log_context(execution_id=execution.id, case_id=ctx.case.id, agent=manifest.id.value, prompt=spec.ref):
+    with log_context(execution_id=execution.id, case_id=ctx.case.id, agent=manifest.id.value, prompt=spec.ref), \
+            ls.trace(name=f"agent:{manifest.id.value}", run_type="chain", inputs={"user_content": user_content},
+                     tags=["agent", manifest.id.value, spec.ref],
+                     metadata={"prompt": spec.ref, "case_id": str(ctx.case.id), "tenant_id": str(ctx.tenant_id),
+                               "execution_id": str(execution.id), "model": manifest.model}) as span:
+        if tracing_enabled():
+            execution.langsmith_run_id = str(span.id)  # links the execution record to its trace
         log.info("agent.started", model=manifest.model, effort=manifest.effort, tools=len(tools))
-        return _loop(session, spec, ctx, client, execution, tools, output_model, params, messages, tool_calls)
+        result = _loop(session, spec, ctx, client, execution, tools, output_model, params, messages, tool_calls)
+        span.end(outputs={"output": result.output.model_dump(mode="json"), "tool_calls": len(tool_calls),
+                          "input_tokens": execution.input_tokens, "output_tokens": execution.output_tokens})
+        return result
 
 
 def _loop(session: Session, spec: PromptSpec, ctx: ToolContext, client: LLMClient,
@@ -151,14 +163,16 @@ def _call_tool(session: Session, ctx: ToolContext, execution: AgentExecutionReco
     started = time.perf_counter()
     tool = tools.get(block.name)
     error = None
-    try:
-        if tool is None:
-            raise ToolError(f"tool {block.name!r} is not available to this agent")
-        content = json.dumps(run_tool(ctx, tool, block.input), default=str)
-        if len(content) > MAX_TOOL_RESULT_CHARS:
-            raise ToolError("result too large; narrow the query")
-    except ToolError as exc:
-        error, content = str(exc), str(exc)
+    with ls.trace(name=f"tool:{block.name}", run_type="tool", inputs={"input": block.input}) as span:
+        try:
+            if tool is None:
+                raise ToolError(f"tool {block.name!r} is not available to this agent")
+            content = json.dumps(run_tool(ctx, tool, block.input), default=str)
+            if len(content) > MAX_TOOL_RESULT_CHARS:
+                raise ToolError("result too large; narrow the query")
+        except ToolError as exc:
+            error, content = str(exc), str(exc)
+        span.end(outputs={"content": content}, error=error)
 
     entry = {"tool": block.name, "input": block.input, "ok": error is None, "error": error,
              "duration_ms": round((time.perf_counter() - started) * 1000, 1)}

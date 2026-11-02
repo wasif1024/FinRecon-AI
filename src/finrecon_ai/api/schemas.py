@@ -337,6 +337,27 @@ class ReportOut(BaseModel):
     notes: list[str]
 
 
+class AgentMetricsOut(BaseModel):
+    agent: str
+    prompt: str
+    model: str | None
+    runs: int
+    completed: int
+    failed: int
+    success_rate: float | None
+    latency_p50_s: float | None
+    latency_p95_s: float | None
+    avg_input_tokens: float | None
+    avg_output_tokens: float | None
+    est_cost_usd: str
+    est_cost_per_run_usd: str
+    tool_calls: int
+    tool_errors: int
+    runs_with_rejected_output: int
+    rejected_items: int
+    outcomes: dict[str, int]
+
+
 class ChainCheckOut(BaseModel):
     intact: bool
     first_bad_event_id: int | None

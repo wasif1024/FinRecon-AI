@@ -16,8 +16,11 @@ class LLMClient(Protocol):
 
 class AnthropicClient:
     def __init__(self, client: anthropic.Anthropic | None = None):
+        from langsmith.wrappers import wrap_anthropic
+
         # Credentials resolve from ANTHROPIC_API_KEY (loaded from .env by Settings) or an `ant auth` profile.
-        self._client = client or anthropic.Anthropic()
+        # wrap_anthropic records each call as an LLM span (model, tokens, latency) when tracing is on; no-op otherwise.
+        self._client = wrap_anthropic(client or anthropic.Anthropic())
 
     def create(self, **params: Any) -> Any:
         return self._client.beta.messages.create(betas=[FALLBACK_BETA], fallbacks="default", **params)

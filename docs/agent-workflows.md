@@ -77,3 +77,5 @@ not complete. Execution runs at most once (unique execution key) and a retry ret
 | Whoever started the investigation cannot decide it; one immutable decision per request | `approvals/service.py`, DB constraint + trigger |
 | Transient API errors retried (3 attempts, backoff); other failures end the run, audited | `AGENT_RETRY`, `failed` node |
 | Each run records its exact prompt (`agent@version#hash`), tool calls and tokens | `agent_execution_records` |
+| Each run is traced in LangSmith and linked by `langsmith_run_id`; content can be hidden | `agents/runtime.py`, `tracing.py` |
+| Prompt versions are compared on live metrics and on planted-scenario experiments | `agents/metrics.py`, `evals/` |

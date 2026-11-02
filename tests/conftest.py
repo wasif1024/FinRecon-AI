@@ -1,3 +1,4 @@
+import os
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -20,6 +21,8 @@ from finrecon_ai.reconciliation.service import run_reconciliation
 from finrecon_ai.synthetic.generator import generate, write_dataset
 
 ROOT = Path(__file__).resolve().parent.parent
+
+os.environ["LANGSMITH_TRACING"] = "false"  # tests never send traces to LangSmith
 
 
 @pytest.fixture(scope="session")

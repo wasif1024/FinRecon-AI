@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     jwt_ttl_minutes: int = 60
     cors_origins: str = "http://localhost:3000"  # comma-separated; the Phase 5 dashboard
 
+    # LangSmith tracing (exported to os.environ by finrecon_ai.tracing.configure_tracing).
+    langsmith_api_key: str | None = None
+    langsmith_tracing: bool = False
+    langsmith_project: str = "finrecon-ai"
+    langsmith_endpoint: str | None = None
+    langsmith_hide_content: bool = False  # keep trace structure, send no inputs/outputs (for real data)
+
     log_level: str = "INFO"
     log_format: Literal["console", "json"] = "console"  # terminal output; the file is always JSON lines
     log_file: str | None = "logs/finrecon.log"  # empty string disables the file

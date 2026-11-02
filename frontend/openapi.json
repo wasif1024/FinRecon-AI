@@ -1277,6 +1277,61 @@
         }
       }
     },
+    "/metrics/agents": {
+      "get": {
+        "tags": [
+          "monitoring"
+        ],
+        "summary": "Agents",
+        "description": "Per agent and prompt version: reliability, latency, estimated cost, tool errors, grounding and outcomes.",
+        "operationId": "agents_metrics_agents_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentMetricsOut"
+                  },
+                  "title": "Response Agents Metrics Agents Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-events": {
       "get": {
         "tags": [
@@ -1427,6 +1482,149 @@
   },
   "components": {
     "schemas": {
+      "AgentMetricsOut": {
+        "properties": {
+          "agent": {
+            "type": "string",
+            "title": "Agent"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "runs": {
+            "type": "integer",
+            "title": "Runs"
+          },
+          "completed": {
+            "type": "integer",
+            "title": "Completed"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "success_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Success Rate"
+          },
+          "latency_p50_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency P50 S"
+          },
+          "latency_p95_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latency P95 S"
+          },
+          "avg_input_tokens": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Input Tokens"
+          },
+          "avg_output_tokens": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Output Tokens"
+          },
+          "est_cost_usd": {
+            "type": "string",
+            "title": "Est Cost Usd"
+          },
+          "est_cost_per_run_usd": {
+            "type": "string",
+            "title": "Est Cost Per Run Usd"
+          },
+          "tool_calls": {
+            "type": "integer",
+            "title": "Tool Calls"
+          },
+          "tool_errors": {
+            "type": "integer",
+            "title": "Tool Errors"
+          },
+          "runs_with_rejected_output": {
+            "type": "integer",
+            "title": "Runs With Rejected Output"
+          },
+          "rejected_items": {
+            "type": "integer",
+            "title": "Rejected Items"
+          },
+          "outcomes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Outcomes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent",
+          "prompt",
+          "model",
+          "runs",
+          "completed",
+          "failed",
+          "success_rate",
+          "latency_p50_s",
+          "latency_p95_s",
+          "avg_input_tokens",
+          "avg_output_tokens",
+          "est_cost_usd",
+          "est_cost_per_run_usd",
+          "tool_calls",
+          "tool_errors",
+          "runs_with_rejected_output",
+          "rejected_items",
+          "outcomes"
+        ],
+        "title": "AgentMetricsOut"
+      },
       "ApprovalDecisionType": {
         "type": "string",
         "enum": [
