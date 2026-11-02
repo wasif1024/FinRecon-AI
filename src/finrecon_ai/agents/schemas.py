@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from finrecon_ai.db.enums import ResolutionType
+
 Confidence = Literal["low", "medium", "high"]
 # Stored as NUMERIC in the database. Coarse on purpose: model confidence is not well calibrated.
 CONFIDENCE_SCORE: dict[str, Decimal] = {"low": Decimal("0.3"), "medium": Decimal("0.6"), "high": Decimal("0.9")}
@@ -38,8 +40,30 @@ class InvestigationReport(_Strict):
     recommended_next_action: str
 
 
+class RiskAssessment(_Strict):
+    summary: str
+    evidence: list[EvidenceItem]
+    indicators: list[Finding]
+    referral_recommended: bool
+    referral_reason: str | None
+    confidence: Confidence
+
+
+class ResolutionProposal(_Strict):
+    resolution_type: ResolutionType  # same enum the database stores
+    summary: str
+    rationale: str
+    action_steps: list[str]
+    contact: Literal["paygate", "bank", "merchant", "internal", "none"]
+    evidence: list[EvidenceItem]
+    policy_labels: list[str]
+    confidence: Confidence
+
+
 OUTPUT_SCHEMAS: dict[str, type[BaseModel]] = {
     "investigation_report": InvestigationReport,
+    "risk_assessment": RiskAssessment,
+    "resolution_proposal": ResolutionProposal,
 }
 
 # Keywords structured outputs may reject; validation of these happens in Pydantic after parsing.

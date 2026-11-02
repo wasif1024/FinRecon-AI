@@ -1,0 +1,23 @@
+id: resolution
+version: v1
+status: draft  # draft | released
+description: Proposes one resolution for a case from its recorded findings and applicable policy (SRS 7.5, FR-10).
+
+model: claude-opus-5-5
+effort: high
+max_tokens: 16000
+max_turns: 8
+
+system: system.md
+output_schema: resolution_proposal
+
+tools:
+  - get_case
+  - get_case_transactions
+  - get_case_findings
+  - find_similar_cases
+  - search_policies
+
+changelog:
+  - version: v1
+    notes: Initial resolution prompt.

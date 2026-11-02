@@ -190,7 +190,7 @@ def transition_case(session: Session, actor: Actor, case_id: uuid.UUID, to_statu
     if rule.approval_only:
         raise InvalidTransition(f"{current} -> {to_status} is decided through the approval workflow")
     actor.require(rule.permission)
-    _require_assignment(actor, case)
+    require_assignment(actor, case)
 
     comment = (comment or "").strip() or None
     if rule.requires_comment and comment is None:
@@ -222,7 +222,7 @@ def transition_case(session: Session, actor: Actor, case_id: uuid.UUID, to_statu
 def add_note(session: Session, actor: Actor, case_id: uuid.UUID, text: str) -> InvestigationEvidence:
     actor.require(Permission.CASE_WORK)
     case = get_case(session, actor, case_id)
-    _require_assignment(actor, case)
+    require_assignment(actor, case)
     if case.status is CaseStatus.CLOSED:
         raise InvalidTransition("closed cases cannot be changed")
     text = text.strip()
@@ -240,7 +240,7 @@ def add_note(session: Session, actor: Actor, case_id: uuid.UUID, text: str) -> I
 # --- helpers ---
 
 
-def _require_assignment(actor: Actor, case: InvestigationCase) -> None:
+def require_assignment(actor: Actor, case: InvestigationCase) -> None:
     if not actor.can(Permission.CASE_WORK_ANY) and case.assigned_to != actor.user_id:
         raise PermissionDenied("case is not assigned to you")
 

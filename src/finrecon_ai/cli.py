@@ -1,4 +1,5 @@
-"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases | policies | prompts | agents."""
+"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases | policies | prompts | agents |
+investigate | workflow | pipeline."""
 
 import argparse
 import json
@@ -9,10 +10,18 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from finrecon_ai.authz import Actor
+from finrecon_ai.authz import Actor, PermissionDenied
 from finrecon_ai.cases.service import create_cases_for_run, list_cases
 from finrecon_ai.db.enums import CaseStatus, IngestionMethod, RoleName, SourceType
-from finrecon_ai.db.models import FinancialSource, ImportBatch, ReconciliationRun, Role, Tenant, User
+from finrecon_ai.db.models import (
+    FinancialSource,
+    ImportBatch,
+    InvestigationCase,
+    ReconciliationRun,
+    Role,
+    Tenant,
+    User,
+)
 from finrecon_ai.db.session import new_session
 from finrecon_ai.ingestion.mappings import DEFAULT_MAPPINGS
 from finrecon_ai.log import configure_logging, get_logger, log_context, new_correlation_id
@@ -112,6 +121,20 @@ def main(argv: list[str] | None = None) -> int:
                                           "and print its report; findings are not saved to the case")
     agent_try.add_argument("case_number")
 
+    investigate = commands.add_parser("investigate", help="run the agent workflow on a case until it pauses for "
+                                      "approval (calls Claude)")
+    investigate.add_argument("case_number")
+    investigate.add_argument("--as", dest="role", choices=["manager", "analyst"], default="manager",
+                             help="demo user to act as (an analyst must be assigned to the case)")
+
+    workflow = commands.add_parser("workflow", help="inspect case workflows")
+    workflow_commands = workflow.add_subparsers(dest="workflow_command", required=True)
+    workflow_status = workflow_commands.add_parser("status", help="where a case's workflow stands")
+    workflow_status.add_argument("case_number")
+
+    pipeline = commands.add_parser("pipeline", help="ingest -> reconcile -> open cases as one workflow")
+    pipeline.add_argument("--dir", type=Path, default=Path("data/synthetic"))
+
     args = parser.parse_args(argv)
     _setup_logging()
     with log_context(correlation_id=new_correlation_id(), command=args.command):
@@ -145,6 +168,11 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         print(json.dumps(dataset.manifest["files"], indent=2))
         return 0
 
+    if args.command in ("investigate", "workflow"):
+        from finrecon_ai.workflows.case_investigation import ensure_checkpoint_tables
+
+        ensure_checkpoint_tables()  # before any other transaction opens (see its docstring)
+
     with new_session() as session:
         tenant = seed_demo(session)
         if args.command == "seed-demo":
@@ -163,6 +191,32 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
         if args.command == "policies":
             return _policies(session, tenant, args)
+
+        if args.command in ("investigate", "workflow"):
+            case = session.scalar(select(InvestigationCase).where(InvestigationCase.tenant_id == tenant.id,
+                                                                  InvestigationCase.case_number == args.case_number))
+            if case is None:
+                print(f"case {args.case_number} not found", file=sys.stderr)
+                return 1
+            role = RoleName(args.role) if args.command == "investigate" else RoleName.AUDITOR
+            actor = _demo_actor(session, tenant, role)
+            session.commit()  # release locks: the workflow's nodes use their own transactions
+            return _investigate(actor, case.id, case.case_number) if args.command == "investigate" \
+                else _workflow_status(case.id)
+
+        if args.command == "pipeline":
+            from finrecon_ai.workflows.case_investigation import session_unit_of_work
+            from finrecon_ai.workflows.reconciliation_pipeline import run_pipeline
+
+            sources = []
+            for name, *_, file_name in DEMO_SOURCES.values():
+                source = session.scalar(select(FinancialSource).where(FinancialSource.tenant_id == tenant.id,
+                                                                      FinancialSource.name == name))
+                sources.append((source.id, args.dir / file_name))
+            session.commit()
+            state = run_pipeline(session_unit_of_work(), tenant.id, sources)
+            print(json.dumps({k: state.get(k) for k in ("batch_ids", "run_id", "cases_opened", "error")}, indent=2))
+            return 1 if state.get("error") else 0
 
         keys = list(DEMO_SOURCES) if args.source == "all" else [args.source]
         if args.file and len(keys) > 1:
@@ -235,6 +289,74 @@ def _cases(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
     for case in found[:args.limit]:
         print(f"{case.case_number}  {case.status:<17} {case.priority:<8} {case.title}")
     return 0
+
+
+def _investigate(actor: Actor, case_id, case_number: str) -> int:
+    from finrecon_ai.agents.llm import default_client
+    from finrecon_ai.policies.store import default_store
+    from finrecon_ai.workflows.case_investigation import (
+        WorkflowDeps,
+        WorkflowError,
+        investigate_case,
+        postgres_checkpointer,
+        session_unit_of_work,
+    )
+
+    deps = WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store())
+    with postgres_checkpointer() as checkpointer:
+        try:
+            result = investigate_case(deps, checkpointer, actor, case_id)
+        except (WorkflowError, PermissionDenied) as exc:
+            print(f"{case_number}: {exc}", file=sys.stderr)
+            return 1
+    _print_case_summary(case_id, result.state, result.paused_for_approval)
+    return 0 if result.paused_for_approval else 1
+
+
+def _workflow_status(case_id) -> int:
+    from finrecon_ai.workflows.case_investigation import (
+        WorkflowDeps,
+        postgres_checkpointer,
+        session_unit_of_work,
+        workflow_state,
+    )
+
+    with postgres_checkpointer() as checkpointer:
+        pending, values = workflow_state(WorkflowDeps(session_unit_of_work(), None, None), checkpointer, case_id)
+    if not values:
+        print("no workflow has run for this case")
+        return 0
+    _print_case_summary(case_id, values, pending == ("await_decision",))
+    return 0
+
+
+def _print_case_summary(case_id, state: dict, paused: bool) -> None:
+    from finrecon_ai.db.models import InvestigationFinding, ResolutionRecommendation
+
+    with new_session() as session:
+        case = session.get(InvestigationCase, case_id)
+        findings = session.scalars(select(InvestigationFinding).where(InvestigationFinding.case_id == case_id)
+                                   .order_by(InvestigationFinding.created_at)).all()
+        rec = session.get(ResolutionRecommendation, state["recommendation_id"]) \
+            if state.get("recommendation_id") else None
+        print(f"{case.case_number}  status={case.status}  round={state.get('round')}  "
+              f"{'PAUSED for approval ' + str(state.get('approval_request_id')) if paused else ''}"
+              + (f"  error={state['error']}" if state.get("error") else ""))
+        print(f"\nfindings ({len(findings)}):")
+        for f in findings:
+            print(f"  [{f.finding_type}] {f.statement}  (evidence: {len(f.evidence_ids)})")
+        if state.get("rejected_output"):
+            print("\nnot accepted from agent output:")
+            for note in state["rejected_output"]:
+                print(f"  - {note}")
+        if rec:
+            print(f"\nrecommendation v{rec.version} [{rec.status}] {rec.resolution_type}: {rec.summary}")
+            for i, step in enumerate(rec.proposed_action["action_steps"], 1):
+                print(f"  {i}. {step}")
+            action = rec.proposed_action
+            print(f"  amount {action['amount']} {action['currency']} | contact {action['contact']} | "
+                  f"policy passages {len(action['policy_evidence_ids'])}"
+                  + (f" | warnings: {action['warnings']}" if action["warnings"] else ""))
 
 
 def _demo_actor(session: Session, tenant: Tenant, role: RoleName) -> Actor:

@@ -22,4 +22,4 @@ tools:
 
 changelog:
   - version: v1
-    notes: Initial investigation prompt.
+    notes: Initial investigation prompt. Money-flow context moved to a shared fragment; policy search added.

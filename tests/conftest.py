@@ -37,6 +37,9 @@ def engine() -> Iterator[Engine]:
     config.set_main_option("sqlalchemy.url", url.render_as_string(hide_password=False).replace("%", "%%"))
     command.downgrade(config, "base")
     command.upgrade(config, "head")
+    from finrecon_ai.workflows.case_investigation import ensure_checkpoint_tables
+
+    ensure_checkpoint_tables(url.render_as_string(hide_password=False))  # before any test transaction opens
     yield engine
     engine.dispose()
 

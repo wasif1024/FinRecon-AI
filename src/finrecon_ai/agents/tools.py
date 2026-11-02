@@ -19,10 +19,13 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from finrecon_ai.agents.schemas import strict_json_schema
-from finrecon_ai.db.enums import ExceptionCategory, SourceType
+from finrecon_ai.db.enums import EvidenceType, ExceptionCategory, SourceType
 from finrecon_ai.db.models import (
+    AgentExecutionRecord,
     FinancialSource,
     InvestigationCase,
+    InvestigationEvidence,
+    InvestigationFinding,
     ReconciliationException,
     ResolutionRecommendation,
     Transaction,
@@ -50,8 +53,12 @@ class ToolContext:
     policy_store: PolicyStore | None = None
     # kind -> identifier as shown to the model -> canonical ID
     identifiers: dict[str, dict[str, str]] = field(default_factory=lambda: defaultdict(dict))
+    # kind -> canonical ID -> what the tool showed (policy passages: document, section, ...)
+    details: dict[str, dict[str, dict[str, Any]]] = field(default_factory=lambda: defaultdict(dict))
 
-    def remember(self, kind: str, canonical: Any, *aliases: Any) -> None:
+    def remember(self, kind: str, canonical: Any, *aliases: Any, details: dict[str, Any] | None = None) -> None:
+        if details is not None:
+            self.details[kind][str(canonical)] = details
         for alias in (canonical, *aliases):
             if alias is None:
                 continue
@@ -226,6 +233,34 @@ def _find_similar_cases(ctx: ToolContext, args: SimilarCasesInput) -> dict[str, 
     return {"category": category, "cases": result}
 
 
+def _get_case_findings(ctx: ToolContext, _: _NoInput) -> dict[str, Any]:
+    """Findings earlier agents (or analysts) recorded on this case, with the evidence each one cites."""
+    evidence = ctx.session.scalars(select(InvestigationEvidence).where(InvestigationEvidence.case_id == ctx.case.id)
+                                   .order_by(InvestigationEvidence.created_at)).all()
+    shown = []
+    for item in evidence:
+        if item.transaction_id:
+            ctx.remember("transaction", item.transaction_id)
+        if item.related_case_id:
+            ctx.remember("historical_case", item.related_case_id)
+        if item.evidence_type is EvidenceType.POLICY_PASSAGE and item.source_reference.get("chunk_id"):
+            ctx.remember("policy_passage", item.source_reference["chunk_id"], details={
+                **item.source_reference, "document_id": str(item.policy_document_id)})
+        shown.append({"evidence_id": str(item.id), "type": item.evidence_type,
+                      "transaction_id": str(item.transaction_id) if item.transaction_id else None,
+                      "related_case_id": str(item.related_case_id) if item.related_case_id else None,
+                      "source_reference": item.source_reference, "note": item.excerpt})
+    findings = ctx.session.execute(
+        select(InvestigationFinding, AgentExecutionRecord.agent_name)
+        .outerjoin(AgentExecutionRecord, AgentExecutionRecord.id == InvestigationFinding.agent_execution_id)
+        .where(InvestigationFinding.case_id == ctx.case.id).order_by(InvestigationFinding.created_at)
+    ).all()
+    return {"evidence": shown, "findings": [
+        {"type": f.finding_type, "statement": f.statement, "confidence": str(f.confidence) if f.confidence else None,
+         "evidence_ids": [str(e) for e in f.evidence_ids], "recorded_by": agent or "analyst"}
+        for f, agent in findings]}
+
+
 class PolicySearchInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -241,7 +276,9 @@ def _search_policies(ctx: ToolContext, args: PolicySearchInput) -> dict[str, Any
     limit = max(1, min(args.limit or 5, MAX_POLICY_PASSAGES))
     hits = ctx.policy_store.search(tenant_id=ctx.tenant_id, query=args.query, limit=limit)
     for hit in hits:
-        ctx.remember("policy_passage", hit.chunk_id)
+        ctx.remember("policy_passage", hit.chunk_id, details={
+            "document_id": hit.document_id, "document": hit.title, "version": hit.version, "section": hit.section,
+            "page": hit.page})
     return {"passages": [{"chunk_id": h.chunk_id, "document": h.title, "version": h.version,
                           "section": h.section, "page": h.page, "score": h.score, "text": h.text} for h in hits],
             "note": None if hits else "no policy passages found; say so rather than assuming what policy requires"}
@@ -264,6 +301,9 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          CounterpartyHistoryInput, _get_counterparty_history),
     Tool("find_similar_cases", "Up to 10 other cases of the same category (or the one given), with how they were "
          "closed and the latest recommendation.", SimilarCasesInput, _find_similar_cases),
+    Tool("get_case_findings", "Findings already recorded on this case by earlier agents or analysts — verified "
+         "facts, hypotheses and outstanding requirements — with the evidence each cites (transactions, past "
+         "cases, policy passages).", _NoInput, _get_case_findings),
     Tool("search_policies", "Search the organisation's current financial policies and procedures by meaning. "
          "Returns passages with document title, version, section and chunk_id; cite the chunk_id. Write the query "
          f"as a topic, e.g. \"acceptable variance for gateway processing fees\". limit defaults to 5, max "

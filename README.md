@@ -32,6 +32,20 @@ every run stores a snapshot of them and every match stores which rules passed or
 The same run flags anomalies (amounts far outside a merchant's range, payment bursts) as indicators
 for review, never as fraud determinations.
 
+## Agent workflows
+
+Investigation, Risk Analysis and Resolution agents run in a LangGraph workflow per case, checkpointed in
+PostgreSQL, and pause for human approval. Agents only read; their output is verified before it is saved.
+Diagrams and controls: [docs/agent-workflows.md](docs/agent-workflows.md).
+
+```bash
+uv run finrecon pipeline run                     # ingest -> reconcile -> open cases
+uv run finrecon investigate CASE-000008          # agents investigate, propose, pause for approval (calls Claude)
+uv run finrecon workflow status CASE-000008
+```
+
+Prompts are versioned files in `src/finrecon_ai/agents/prompts/` (see the README there).
+
 ## Policy documents
 
 Policies and procedures (PDF, DOCX, TXT, Markdown) are split by section, embedded locally with fastembed

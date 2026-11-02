@@ -45,3 +45,33 @@ class FakeClient:
         if isinstance(step, Exception):
             raise step
         return step(params) if callable(step) else step
+
+
+class AgentScripts:
+    """Fake Claude for whole workflows: picks the script by which agent's system prompt is in the request.
+
+    Each script is a list of steps; a step is a response or a callable(params) -> response, so a step can read
+    earlier tool results from params["messages"].
+    """
+
+    def __init__(self, **scripts):
+        from finrecon_ai.agents.prompt_registry import load_prompt
+        from finrecon_ai.db.enums import AgentName
+
+        self.by_system = {load_prompt(AgentName(name)).system_text: list(steps) for name, steps in scripts.items()}
+        self.names = {load_prompt(AgentName(name)).system_text: name for name in scripts}
+        self.calls: list[str] = []
+
+    def create(self, **params):
+        system = params["system"][0]["text"]
+        self.calls.append(self.names[system])
+        step = self.by_system[system].pop(0)
+        if isinstance(step, Exception):
+            raise step
+        return step(params) if callable(step) else step
+
+
+def last_tool_results(params) -> list[dict]:
+    """Parsed JSON of the tool results in the latest user message."""
+    content = params["messages"][-1]["content"]
+    return [json.loads(r["content"]) for r in content if r.get("type") == "tool_result" and not r.get("is_error")]

@@ -1,0 +1,25 @@
+id: risk_analysis
+version: v1
+status: draft  # draft | released
+description: Assesses anomaly and duplicate indicators on a case and recommends whether to refer it (SRS 7.4).
+
+model: claude-opus-5-5
+effort: high
+max_tokens: 16000
+max_turns: 10
+
+system: system.md
+output_schema: risk_assessment
+
+tools:
+  - get_case
+  - get_case_transactions
+  - get_case_findings
+  - search_transactions
+  - get_counterparty_history
+  - find_similar_cases
+  - search_policies
+
+changelog:
+  - version: v1
+    notes: Initial risk analysis prompt.
