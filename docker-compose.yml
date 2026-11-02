@@ -1,12 +1,57 @@
-# docker compose up -d                          -> Qdrant
-# docker compose --profile web up -d --build    -> Qdrant + API (:8000) + dashboard (:3000)
-# docker compose run --rm app <command>         -> run the CLI in a container, e.g. `policies list`
-# docker compose --profile otel up -d otel-lgtm  -> Grafana with Tempo, Prometheus and Loki for OpenTelemetry
-#                                                   (UI :3001, OTLP :4317 gRPC / :4318 HTTP; scripts/start.sh --otel)
+# docker compose up -d                              -> PostgreSQL + Qdrant (for local runs: uv run finrecon ...)
+# docker compose --profile web up -d --build        -> the whole stack: + migrations, API (:8000), dashboard (:3000)
+# docker compose run --rm app <command>             -> the CLI in a container, e.g. `seed-demo`, `pipeline`
+# docker compose --profile otel up -d otel-lgtm     -> Grafana with Tempo, Prometheus and Loki for OpenTelemetry
+#                                                      (UI :3001, OTLP :4318); DOCKER_OTEL_ENDPOINT points the
+#                                                      containers at it (README, Docker)
 #
-# PostgreSQL runs on the host for now; the app container reaches it through host.docker.internal.
+# The stack has its own PostgreSQL (volume postgres_data) with two logins, created on its first start by
+# docker/postgres/init.sh: finrecon owns the tables and runs migrations; the API connects as finrecon_app, which
+# reads and writes rows only. Passwords come from .env (FINRECON_DB_PASSWORD, FINRECON_APP_DB_PASSWORD,
+# POSTGRES_PASSWORD). To use another database instead, set DOCKER_DATABASE_URL and DOCKER_MIGRATION_DATABASE_URL.
+
+x-db-urls: &db-urls
+  DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://finrecon_app:${FINRECON_APP_DB_PASSWORD:?set FINRECON_APP_DB_PASSWORD in .env}@postgres:5432/finrecon}
+  MIGRATION_DATABASE_URL: ${DOCKER_MIGRATION_DATABASE_URL:-postgresql+psycopg://finrecon:${FINRECON_DB_PASSWORD:?set FINRECON_DB_PASSWORD in .env}@postgres:5432/finrecon}
+
+x-app: &app
+  build: .
+  image: finrecon-ai:local
+  env_file: .env
+  environment: &app-env
+    <<: *db-urls
+    QDRANT_URL: http://qdrant:6333
+    LOG_FORMAT: json
+    LOG_FILE: /app/logs/finrecon.log
+    DOCUMENT_STORAGE_DIR: /app/storage/documents
+    FASTEMBED_CACHE_PATH: /app/.cache/fastembed
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${DOCKER_OTEL_ENDPOINT:-}
+  volumes:
+    - ./logs:/app/logs  # same folder as local runs
+    - ./storage:/app/storage
+    - fastembed_cache:/app/.cache/fastembed
+  extra_hosts:
+    - "host.docker.internal:host-gateway"  # for DOCKER_*_DATABASE_URL on the host
 
 services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      FINRECON_DB_PASSWORD: ${FINRECON_DB_PASSWORD:?set FINRECON_DB_PASSWORD in .env}
+      FINRECON_APP_DB_PASSWORD: ${FINRECON_APP_DB_PASSWORD:?set FINRECON_APP_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5433:5432"  # for psql from the host; 5432 is usually a local PostgreSQL
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./docker/postgres/init.sh:/docker-entrypoint-initdb.d/10-finrecon.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d finrecon"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   qdrant:
     image: qdrant/qdrant:v1.20.0
     ports:
@@ -21,64 +66,69 @@ services:
       retries: 10
     restart: unless-stopped
 
-  app:
-    build: .
-    profiles: ["app"]  # not started by `up`; used with `run`
-    env_file: .env
-    environment:
-      # Host Postgres as seen from the container; override with DOCKER_DATABASE_URL in .env.
-      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://finrecon:finrecon@host.docker.internal:5432/finrecon}
-      QDRANT_URL: http://qdrant:6333
-      LOG_FORMAT: json
-      LOG_FILE: /app/logs/finrecon.log
-      DOCUMENT_STORAGE_DIR: /app/storage/documents
-      FASTEMBED_CACHE_PATH: /app/.cache/fastembed
-    volumes:
-      - ./logs:/app/logs  # same folder as local runs
-      - ./storage:/app/storage
-      - ./data:/app/data:ro
-      - fastembed_cache:/app/.cache/fastembed
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+  # As the owner: migrations, LangGraph's checkpoint tables and the API role's rights. Runs once per `up`.
+  migrate:
+    <<: *app
+    profiles: ["web", "app"]
+    command: ["db", "migrate"]
+    restart: "no"
     depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    profiles: ["app"]  # not started by `up`; used with `run`
+    volumes:
+      - ./logs:/app/logs
+      - ./storage:/app/storage
+      - ./data:/app/data:ro  # synthetic source files for seed-demo / pipeline
+      - fastembed_cache:/app/.cache/fastembed
+    depends_on:
+      postgres:
+        condition: service_healthy
       qdrant:
         condition: service_healthy
 
   api:
-    build: .
+    <<: *app
     profiles: ["web"]
     command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
-    env_file: .env
     environment:
-      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://finrecon:finrecon@host.docker.internal:5432/finrecon}
-      QDRANT_URL: http://qdrant:6333
-      LOG_FORMAT: json
-      LOG_FILE: /app/logs/finrecon.log
-      DOCUMENT_STORAGE_DIR: /app/storage/documents
-      FASTEMBED_CACHE_PATH: /app/.cache/fastembed
+      <<: *app-env
+      # Production behaviour: agent runs in this process, no Agent Server (README, LangSmith Studio).
+      ENVIRONMENT: ${DOCKER_ENVIRONMENT:-production}
+      CORS_ORIGINS: http://localhost:3000
     ports:
-      - "8000:8000"
-    volumes:
-      - ./logs:/app/logs
-      - ./storage:/app/storage
-      - fastembed_cache:/app/.cache/fastembed
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "8000:8000"  # REST, Connect and gRPC
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       qdrant:
         condition: service_healthy
+    restart: unless-stopped
 
   frontend:
     build: ./frontend
+    image: finrecon-dashboard:local
     profiles: ["web"]
     environment:
       API_URL: http://api:8000  # server-to-server; the browser only talks to the dashboard
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${DOCKER_OTEL_ENDPOINT:-}
     ports:
       - "3000:3000"
     volumes:
       - ./logs:/app/logs
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
   otel-lgtm:
     image: grafana/otel-lgtm:0.37.0
@@ -92,6 +142,7 @@ services:
     restart: unless-stopped
 
 volumes:
-  otel_data:
+  postgres_data:
   qdrant_data:
+  otel_data:
   fastembed_cache:

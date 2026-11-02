@@ -78,8 +78,8 @@ for review, never as fraud determinations.
 ```bash
 uv run finrecon serve                  # API on :8000 (REST, Connect and gRPC)
 cd frontend && pnpm install && pnpm dev   # dashboard on :3000
-# or everything in Docker:
-docker compose --profile web up -d --build
+# or everything in Docker (see Docker):
+docker compose --profile web up -d --build --wait
 ```
 
 Sign in with a demo user (set passwords with `uv run finrecon users set-password <email>`). The dashboard is a
@@ -314,7 +314,7 @@ Policies and procedures (PDF, DOCX, TXT, Markdown) are split by section, embedde
 new version and removes the old one from search. Only admins may upload.
 
 ```bash
-docker compose up -d                                 # Qdrant
+docker compose up -d qdrant                          # Qdrant
 uv run finrecon policies upload                      # indexes data/policies/ (sample policies)
 uv run finrecon policies search "late bank credit"
 uv run finrecon policies list
@@ -322,14 +322,32 @@ uv run finrecon policies list
 
 ## Docker
 
-`docker compose up -d` starts Qdrant. The app runs on demand in a container against the host's PostgreSQL:
+The whole stack runs in Compose with its own PostgreSQL 18 (volume `postgres_data`), separate from a local one:
 
 ```bash
-docker compose run --rm app policies search "duplicate bank credit"
+# once: POSTGRES_PASSWORD, FINRECON_DB_PASSWORD, FINRECON_APP_DB_PASSWORD and JWT_SECRET in .env (see .env.example)
+docker compose --profile web up -d --build --wait   # postgres, qdrant, migrate, api (:8000), frontend (:3000)
+docker compose run --rm app seed-demo               # demo tenant and sources
+docker compose run --rm app pipeline --dir data/synthetic
+docker compose run --rm app policies upload         # the sample policy library (data/policies)
+docker compose run --rm app users set-password manager@demo.finrecon.dev
+docker compose --profile web down                   # stop (data stays in the volumes; add -v to wipe it)
 ```
 
-The container writes logs to the same `./logs` folder (mounted at `/app/logs`) and keeps uploaded originals in
-`./storage`. Set `DOCKER_DATABASE_URL` in `.env` if your database credentials differ from `.env.example`.
+| Service | What it does |
+|---|---|
+| `postgres` | PostgreSQL 18; its first start creates the owner `finrecon` and the API's login `finrecon_app` (`docker/postgres/init.sh`). On host port 5433 for `psql` |
+| `qdrant` | Vector search for policy documents |
+| `migrate` | One-shot `finrecon db migrate` as the owner: migrations, checkpoint tables, the API role's rights. The API starts only after it succeeds |
+| `api` | `finrecon serve` as `finrecon_app`: REST, Connect and gRPC on :8000, production behaviour (`ENVIRONMENT=production`: agent runs in this process, no Agent Server). Healthy once `/health` answers |
+| `frontend` | The Next.js dashboard on :3000, talking to `api` server-to-server; starts once the API is healthy |
+| `app` | The CLI on demand (`docker compose run --rm app <command>`), with `./data` mounted read-only |
+| `otel-lgtm` | Optional (`--profile otel`): Grafana on :3001. Set `DOCKER_OTEL_ENDPOINT=http://otel-lgtm:4318` in `.env` and the API and dashboard export to it |
+
+Containers write logs to `./logs` (mounted at `/app/logs`) and keep uploaded originals in `./storage`. To run them
+against another database (the host's, say), set `DOCKER_DATABASE_URL` (the application's login) and
+`DOCKER_MIGRATION_DATABASE_URL` (the owner) in `.env`; `host.docker.internal` reaches the host. CI builds both
+images and smoke-tests this stack on every push.
 
 ## Cases and permissions
 

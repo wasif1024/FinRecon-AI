@@ -73,6 +73,32 @@ jobs:
         if: github.event_name == 'pull_request'
         run: frontend/node_modules/.bin/buf breaking proto --against '.git#branch=origin/main,subdir=proto'
 
+  docker:
+    name: Docker (images + stack smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Environment for the stack (throwaway secrets; no API keys)
+        run: |
+          cp .env.example .env
+          for key in POSTGRES_PASSWORD FINRECON_DB_PASSWORD FINRECON_APP_DB_PASSWORD JWT_SECRET; do
+            sed -i "s|^$key=.*|$key=$(openssl rand -hex 32)|" .env
+          done
+          sed -i "s|^LANGSMITH_TRACING=.*|LANGSMITH_TRACING=false|; s|^AGENT_WORKSPACE=.*|AGENT_WORKSPACE=state|" .env
+      - name: Build and start (migrations as the owner, then the API as finrecon_app, then the dashboard)
+        run: docker compose --profile web up -d --build --wait
+      - name: Smoke test
+        run: |
+          curl -fsS localhost:8000/health
+          curl -fsS -o /dev/null localhost:3000/login
+          code=$(curl -s -X POST localhost:8000/finrecon.v1.CaseService/ListCases \
+                 -H 'Content-Type: application/json' -d '{}' | jq -r .code)
+          test "$code" = unauthenticated
+          docker compose run --rm -T app db check   # the API's login reads and writes rows only
+      - name: Logs
+        if: failure()
+        run: docker compose --profile web logs
+
   frontend:
     name: Frontend (lint + types + build)
     runs-on: ubuntu-latest
