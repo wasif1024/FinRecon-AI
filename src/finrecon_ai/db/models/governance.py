@@ -56,6 +56,8 @@ class AgentExecutionRecord(UUIDPrimaryKeyMixin, TenantMixin, Base):
     tool_calls: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, server_default="[]")
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
+    # {model: {"input_tokens": n, "output_tokens": n}}: subagents may run on a smaller model than their parent.
+    usage_by_model: Mapped[dict[str, dict[str, int]]] = mapped_column(JSONB, server_default="{}")
     error: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

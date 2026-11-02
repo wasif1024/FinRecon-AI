@@ -126,14 +126,16 @@ Prompts are versioned files in `src/finrecon_ai/agents/prompts/` (see the README
 `langgraph.json` serves the graphs on a local LangGraph Agent Server, so they open in LangSmith Studio:
 
 ```bash
-uv run langgraph dev --n-jobs-per-worker 10
-# Studio: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
+scripts/studio.sh        # langgraph dev; Ctrl-C also stops running case sandboxes
+# Studio (Chrome): https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
 ```
 
 | Graph | What it is |
 |---|---|
 | `case-investigation` | The whole case workflow (the same graph the API runs). Input `{"case_number": "CASE-000021"}`. Watch each step, Deep Agent, subagent and tool call live; it pauses for approval |
 | `investigation-agent`, `risk-analysis-agent`, `resolution-agent` | Each Deep Agent's own graph from the active prompt version, to inspect. They run only inside `case-investigation`, so every run is recorded and audited |
+| `ops-assistant` | Chat about cases ("which fee cases are new?"). Starts `batch-investigator` in the background (async subagent) and collects its result later |
+| `batch-investigator` | Starts one `case-investigation` run per case, at most `BATCH_MAX_CASES` (5) per batch, and reports which now wait for approval |
 
 Studio runs act as `STUDIO_ACTOR_EMAIL` in `STUDIO_TENANT_SLUG` (the demo manager by default) and go through the same
 checks as the API: permission, assignment, status, and no other run of the case in progress. They call Claude.
@@ -141,6 +143,25 @@ Only the approval service decides: record the decision in the dashboard or with 
 the run is resumed on the Agent Server; a resume value typed into Studio is refused unless it names that recorded
 decision. The graphs are refused unless `ENVIRONMENT=development`. `langgraph dev` keeps its threads in
 `.langgraph_api/`; a deployed Agent Server keeps them in PostgreSQL (and needs Redis and a license key; see Phase 6).
+
+## Agent workspace, memory and skills
+
+Each case's agents share one **LangSmith sandbox** (`finrecon-case-<case_id>`), used only as a filesystem: the
+investigation agent's working papers (`/workpapers/`) are there for the resolution agent and for the next round if
+a manager returns the case. It is wrapped so it cannot run commands (no `execute` tool), stops after 10 idle
+minutes and is deleted 7 days after stopping. Every run seeds it with the prompt version's read-only files:
+
+- **Memory:** `/AGENTS.md`, the operating manual (how money moves, financial controls, data handling, workspace),
+  loaded into every model call.
+- **Skills:** `/skills/<category>/SKILL.md`, one playbook per kind of exception, read only when the case needs it.
+
+Narrow research subagents run on Claude Haiku 5.5; the agents on Opus 5.5. Cost is recorded per model.
+`AGENT_WORKSPACE=state` keeps files in the run instead (no sandbox).
+
+```bash
+uv run finrecon sandboxes list     # case sandboxes and their status
+uv run finrecon sandboxes stop     # stop running ones now (files are kept)
+```
 
 ## Long-running workflows
 

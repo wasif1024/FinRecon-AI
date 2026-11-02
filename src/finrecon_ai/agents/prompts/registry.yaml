@@ -1,5 +1,5 @@
 # Active prompt version per agent. Ingestion and reconciliation are deterministic workflow nodes (no prompt).
 agents:
-  investigation: v2
-  risk_analysis: v2
-  resolution: v2
+  investigation: v3
+  risk_analysis: v3
+  resolution: v3

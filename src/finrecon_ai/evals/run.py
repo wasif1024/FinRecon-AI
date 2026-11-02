@@ -60,12 +60,14 @@ def run_experiment(scenarios: Iterable[str] | None = None,
     from langsmith import Client, evaluate
 
     from finrecon_ai.agents.llm import default_client
+    from finrecon_ai.agents.workspace import default_workspaces
     from finrecon_ai.policies.store import default_store
     from finrecon_ai.workflows.case_investigation import session_unit_of_work
 
     client = Client()
     sync_dataset(client)
     unit_of_work, store, llm = session_unit_of_work(), default_store(), default_client()
+    workspaces = default_workspaces()  # the same per-case workspace as production
     with tempfile.TemporaryDirectory() as workdir:
         tenant = prepare_tenant(unit_of_work, store, Path(workdir))
         log.info("eval.tenant_ready", tenant_id=tenant.tenant_id, scenarios=len(tenant.cases))
@@ -74,7 +76,7 @@ def run_experiment(scenarios: Iterable[str] | None = None,
                 and e.inputs["scenario"] in tenant.cases]
 
         def target(inputs: dict) -> dict:
-            return investigate(unit_of_work, llm, store, tenant, inputs["scenario"])
+            return investigate(unit_of_work, llm, store, tenant, inputs["scenario"], workspaces)
 
         prompts = {agent.value: load_prompt(agent).ref for agent in
                    (AgentName.INVESTIGATION, AgentName.RISK_ANALYSIS, AgentName.RESOLUTION)}

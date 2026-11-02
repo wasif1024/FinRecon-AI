@@ -27,11 +27,9 @@ from sqlalchemy import select
 from finrecon_ai.agents.llm import anthropic_chat_model, default_client
 from finrecon_ai.agents.prompt_registry import load_prompt
 from finrecon_ai.agents.runtime import build_deep_agent
-from finrecon_ai.authz import load_actor
 from finrecon_ai.config import get_settings
 from finrecon_ai.db.enums import AgentName
-from finrecon_ai.db.models import InvestigationCase, Tenant, User
-from finrecon_ai.db.tenancy import bypass_rls
+from finrecon_ai.db.models import InvestigationCase
 from finrecon_ai.log import get_logger
 from finrecon_ai.workflows.case_investigation import (
     CaseState,
@@ -68,24 +66,22 @@ def _deps() -> WorkflowDeps:
     from finrecon_ai.tracing import configure_tracing
 
     configure_tracing(get_settings())
-    return WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store())
+    from finrecon_ai.agents.workspace import default_workspaces
+
+    return WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store(),
+                        workspaces=default_workspaces())
 
 
 def _open_case(deps: WorkflowDeps, state: StudioState, config: dict) -> dict[str, Any]:
     """Resolve the case and the Studio user, then apply the same checks as starting a run from the API."""
-    settings = get_settings()
+    from finrecon_ai.coordinators import studio_actor
+
     with deps.unit_of_work() as session:
-        bypass_rls(session)  # finding the configured tenant and user; everything after runs tenant-scoped
-        tenant = session.scalar(select(Tenant).where(Tenant.slug == settings.studio_tenant_slug))
-        user = tenant and session.scalar(select(User).where(User.tenant_id == tenant.id,
-                                                            User.email == settings.studio_actor_email))
-        case_id = tenant and session.scalar(select(InvestigationCase.id).where(
-            InvestigationCase.tenant_id == tenant.id, InvestigationCase.case_number == state.get("case_number")))
-        if not (tenant and user):
-            raise WorkflowError("STUDIO_TENANT_SLUG / STUDIO_ACTOR_EMAIL do not name an existing user")
+        actor = studio_actor(session)
+        case_id = session.scalar(select(InvestigationCase.id).where(
+            InvestigationCase.tenant_id == actor.tenant_id, InvestigationCase.case_number == state.get("case_number")))
         if case_id is None:
-            raise WorkflowError(f"case {state.get('case_number')!r} not found in {tenant.slug}")
-        actor = load_actor(session, tenant.id, user.id)
+            raise WorkflowError(f"case {state.get('case_number')!r} not found")
     with postgres_checkpointer() as checkpointer:
         authorize_start(deps, checkpointer, actor, case_id, current_thread=config["configurable"].get("thread_id"))
     log.info("studio.case_opened", case_id=case_id, actor=str(actor.user_id))
@@ -112,10 +108,35 @@ def _agent_view(agent: AgentName):
             raise WorkflowError(f"{agent.value} runs only inside {CASE_GRAPH_ID}, so every run is recorded and "
                                 "audited; start that graph with a case_number")
         spec = load_prompt(agent)
-        return build_deep_agent(spec, anthropic_chat_model(spec.manifest, api_key="unused-for-drawing"), ctx=None)
+        return build_deep_agent(spec, lambda manifest: anthropic_chat_model(manifest, api_key="unused-for-drawing"),
+                                ctx=None)
 
     factory.__name__ = f"{agent.value}_agent"
     return factory
+
+
+def _coordinator_tools():
+    from langgraph_sdk import get_sync_client
+
+    from finrecon_ai.coordinators import case_tools
+
+    return case_tools(_deps(), postgres_checkpointer, get_sync_client(url=get_settings().agent_server_url))
+
+
+def ops_assistant(config: RunnableConfig, runtime: ServerRuntime):
+    """`ops-assistant`: chat about cases; starts `batch-investigator` in the background (async subagent)."""
+    from finrecon_ai.coordinators import build_ops_assistant
+
+    _require_development()
+    return build_ops_assistant(_coordinator_tools())
+
+
+def batch_investigator(config: RunnableConfig, runtime: ServerRuntime):
+    """`batch-investigator`: starts one audited `case-investigation` run per case, capped per batch."""
+    from finrecon_ai.coordinators import build_batch_investigator
+
+    _require_development()
+    return build_batch_investigator(_coordinator_tools())
 
 
 investigation_agent = _agent_view(AgentName.INVESTIGATION)

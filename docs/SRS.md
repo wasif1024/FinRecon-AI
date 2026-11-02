@@ -1,7 +1,7 @@
 # FinRecon AI
 ## Software Requirements Specification (SRS)
 
-**Version:** 1.2  
+**Version:** 1.3  
 **Date:** November 2026  
 **Project:** FinRecon AI – Agentic Financial Reconciliation & Investigation Platform  
 **Status:** Revised Requirements Baseline
@@ -14,6 +14,7 @@
 |---|---|---|
 | 1.0 | November 2026 | Initial requirements baseline. |
 | 1.1 | November 2026 | Agent orchestration confirmed as LangGraph on Python. Redis removed from the stack. Claude API confirmed as the sole LLM provider. |
+| 1.3 | November 2026 | Deep Agents standards (§7): one LangSmith sandbox per case as the agents' file workspace (no code execution), an operating-manual memory and per-category playbook skills, smaller models for narrow subagents, coordinator agents on the LangGraph Agent Server (operations assistant with a background batch investigator), and recovery of interrupted runs (§8). |
 | 1.2 | November 2026 | Agent stack made explicit: LLM agents are built with LangChain Deep Agents on LangChain (ChatAnthropic, LangChain tools) inside the LangGraph workflow; LangSmith is required for tracing, monitoring and evaluation (§7, §8, §9, §13). |
 
 ---
@@ -383,10 +384,14 @@ The LLM-based agents (Investigation, Risk Analysis, Resolution) shall be impleme
 
 - **Model:** Claude through LangChain's `ChatAnthropic` (`langchain-anthropic`). Claude remains the sole LLM provider.
 - **Tools:** case tools are LangChain tools, read-only, bound to one tenant and one case, and allow-listed per prompt version.
-- **Planning and scratch space:** the Deep Agents planning tool and file tools, with files held only in the run's own state (never on disk or in the database).
+- **Planning and workspace:** the Deep Agents planning tool and file tools. Each case has one LangSmith sandbox as its agents' workspace, used only as a filesystem: working papers carry from one agent to the next and across investigation rounds. Agents shall not run commands or code in it; financial calculations stay in deterministic services. Sandboxes stop when idle and are deleted after a retention period.
+- **Memory and skills:** a versioned, read-only operating manual (memory) loaded into every model call, and one versioned playbook (skill) per exception category, read only when relevant.
+- **Models:** narrow research subagents may use a smaller Claude model than their parent; cost is recorded per model.
 - **Subagents:** each agent may delegate focused research to subagents declared in its prompt version, each with its own tool allow-list. Shell execution and any general-purpose subagent that inherits every tool shall be disabled.
 - **Structured output:** each agent returns a schema-validated report; cited identifiers are verified against what the tools returned before anything is stored.
 - **Auditing:** every tool call, including subagents' and the harness's own tools, is recorded and audited (FR-12).
+
+Coordinator agents on the LangGraph Agent Server (development and operations): an operations assistant that reports case status and starts a background batch investigator (an asynchronous subagent), which starts one audited case workflow per case, capped per batch. Coordinators cannot investigate or decide cases themselves.
 
 The Transaction Ingestion and Reconciliation responsibilities (7.1, 7.2) are performed by deterministic LangGraph workflow nodes; no LLM is involved in moving or matching financial records.
 
@@ -456,6 +461,7 @@ LangGraph shall manage:
 - Retry policies.
 - Failure handling.
 - Background task execution, using LangGraph runs with PostgreSQL-backed checkpointing.
+- Recovery: a run interrupted mid-way (process stopped, deployment) resumes from its last checkpoint without repeating completed steps.
 
 A typical reconciliation workflow:
 

@@ -13,6 +13,8 @@ from finrecon_ai.agents.prompt_registry import Manifest
 # Re-run a classifier decline on Anthropic's recommended model for that refusal category. ChatAnthropic sends
 # requests with `betas` through client.beta.messages.create.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+# Haiku has no server-side fallback: sending `fallbacks` to it is a 400.
+NO_FALLBACK_PREFIXES = ("claude-haiku-",)
 
 
 class ChatModelFactory(Protocol):
@@ -22,14 +24,18 @@ class ChatModelFactory(Protocol):
 
 
 def anthropic_chat_model(manifest: Manifest, api_key: str | None = None) -> BaseChatModel:
+    return claude(manifest.model, effort=manifest.effort, max_tokens=manifest.max_tokens, api_key=api_key)
+
+
+def claude(model: str, *, effort: str, max_tokens: int, api_key: str | None = None) -> BaseChatModel:
     from langchain_anthropic import ChatAnthropic
 
+    fallback = not model.startswith(NO_FALLBACK_PREFIXES)
     return ChatAnthropic(
-        model=manifest.model,
-        max_tokens=manifest.max_tokens,
-        output_config={"effort": manifest.effort},
-        betas=[FALLBACK_BETA],
-        model_kwargs={"fallbacks": "default"},
+        model=model,
+        max_tokens=max_tokens,
+        output_config={"effort": effort},
+        **({"betas": [FALLBACK_BETA], "model_kwargs": {"fallbacks": "default"}} if fallback else {}),
         max_retries=2,  # the workflow's RetryPolicy retries the whole agent step on top of this
         # Credentials resolve from ANTHROPIC_API_KEY (loaded from .env by Settings) when not passed.
         **({"api_key": api_key} if api_key else {}),

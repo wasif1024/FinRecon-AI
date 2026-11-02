@@ -18,11 +18,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, create_deep_agent, register_harness_profile
+from deepagents import (
+    FilesystemPermission,
+    GeneralPurposeSubagentProfile,
+    HarnessProfile,
+    create_deep_agent,
+    register_harness_profile,
+)
+from deepagents.backends.protocol import BackendProtocol
+from deepagents.backends.utils import create_file_data
 from langchain.agents.middleware import AgentMiddleware, ModelCallLimitMiddleware, TodoListMiddleware, ToolCallRequest
 from langchain.agents.structured_output import ProviderStrategy, StructuredOutputError
 from langchain_core.callbacks import BaseCallbackHandler
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage, ToolMessage
 from langchain_core.outputs import LLMResult
 from langchain_core.tools import StructuredTool, ToolException
@@ -33,6 +40,7 @@ from finrecon_ai.agents.llm import ChatModelFactory
 from finrecon_ai.agents.prompt_registry import PromptSpec
 from finrecon_ai.agents.schemas import OUTPUT_SCHEMAS, strict_json_schema
 from finrecon_ai.agents.tools import TOOLS, Tool, ToolContext, ToolError, run_tool
+from finrecon_ai.agents.workspace import seed
 from finrecon_ai.audit import record_event
 from finrecon_ai.db.enums import ActorType, AgentExecutionStatus
 from finrecon_ai.db.models import AgentExecutionRecord
@@ -72,6 +80,7 @@ def run_agent(
     user_content: str,
     client: ChatModelFactory,
     parent_execution_id: uuid.UUID | None = None,
+    workspace: BackendProtocol | None = None,
 ) -> AgentResult:
     manifest = spec.manifest
     output_model = OUTPUT_SCHEMAS[manifest.output_schema]
@@ -85,8 +94,13 @@ def run_agent(
     session.flush()
 
     tool_calls: list[dict[str, Any]] = []
-    agent = build_deep_agent(spec, client(manifest), ctx, audit_for=lambda subagent: [
+    agent = build_deep_agent(spec, client, ctx, workspace=workspace, audit_for=lambda subagent: [
         ToolAuditMiddleware(session, ctx, execution, tool_calls, subagent=subagent)])
+    agent_input: dict[str, Any] = {"messages": [{"role": "user", "content": user_content}]}
+    if workspace is None:  # the run's own state: the manual and playbooks go in with the first message
+        agent_input["files"] = {path: create_file_data(text) for path, text in spec.files.items()}
+    elif spec.files:
+        seed(workspace, spec.files)  # a case's sandbox: replace any earlier (or edited) copy with this version's
 
     observer = RunObserver(manifest.model)
     trace_id = uuid.uuid4()
@@ -104,7 +118,7 @@ def run_agent(
         log.info("agent.started", model=manifest.model, effort=manifest.effort, tools=len(manifest.tools),
                  subagents=len(manifest.subagents))
         try:
-            state = agent.invoke({"messages": [{"role": "user", "content": user_content}]}, config=config)
+            state = agent.invoke(agent_input, config=config)
             _tokens(execution, observer)
             output = _structured_output(state, output_model, manifest.output_schema, observer)
         except _Stop as exc:
@@ -136,25 +150,36 @@ class _Stop(Exception):
     pass
 
 
-def build_deep_agent(spec: PromptSpec, model: BaseChatModel, ctx: ToolContext | None,
+def build_deep_agent(spec: PromptSpec, client: ChatModelFactory, ctx: ToolContext | None, *,
+                     workspace: BackendProtocol | None = None,
                      audit_for: Callable[[str | None], list[AgentMiddleware]] = lambda subagent: []):
-    """The Deep Agent for one prompt version: case tools bound to `ctx`, declared subagents, planning, a turn
-    limit per agent and subagent, and structured output. `audit_for(None)` / `audit_for(name)` supply the audit
-    middleware for the agent and each subagent. The Agent Server builds it with no case to draw its graph."""
+    """The Deep Agent for one prompt version: case tools bound to `ctx`, declared subagents (each on its own model
+    if the manifest says so), planning, the operating-manual memory and playbook skills, a turn limit per agent and
+    subagent, and structured output. Files live in `workspace` (a case's sandbox) or, when None, the run's state.
+    `audit_for(None)` / `audit_for(name)` supply the audit middleware for the agent and each subagent. The Agent
+    Server builds it with no case to draw its graph."""
     manifest = spec.manifest
     wanted = set(manifest.tools) | {t for s in manifest.subagents for t in s.tools}
     unknown = sorted(wanted - TOOLS.keys())
     if unknown:
         raise ValueError(f"{spec.ref} allows unknown tools: {unknown}")
     tools = {name: langchain_tool(TOOLS[name], ctx) for name in wanted}
+    memory = [path for path in spec.files if not path.startswith("/skills/")]
     return create_deep_agent(
-        model=model,
+        model=client(manifest),
         tools=[tools[name] for name in manifest.tools],
+        memory=memory or None,
+        skills=["/skills/"] if manifest.skills else None,
+        backend=workspace,
+        permissions=[FilesystemPermission(operations=["write"], paths=[*memory, "/skills/**"], mode="deny")]
+        if spec.files else None,
         # Static system prompt first, marked so it caches across cases.
         system_prompt=SystemMessage(content=[{"type": "text", "text": spec.system_text,
                                               "cache_control": {"type": "ephemeral"}}]),
         subagents=[{"name": s.name, "description": s.description, "system_prompt": spec.subagent_texts[s.name],
                     "tools": [tools[name] for name in s.tools],
+                    "model": client(manifest.model_copy(update={
+                        "model": s.model or manifest.model, "effort": s.effort or manifest.effort})),
                     "middleware": [*audit_for(s.name),
                                    ModelCallLimitMiddleware(run_limit=s.max_turns, exit_behavior="error")]}
                    for s in manifest.subagents],
@@ -266,6 +291,7 @@ class RunObserver(BaseCallbackHandler):
         self.output_tokens = 0
         self.last_stop_reason: str | None = None
         self.last_refusal_category: str | None = None
+        self.by_model: dict[str, dict[str, int]] = {}
         self._started: dict[uuid.UUID, float] = {}
 
     def on_chat_model_start(self, serialized: Any, messages: Any, *, run_id: uuid.UUID, **kwargs: Any) -> None:
@@ -279,6 +305,10 @@ class RunObserver(BaseCallbackHandler):
         # LangChain's input_tokens already include cache reads and writes.
         self.input_tokens += usage.get("input_tokens", 0) or 0
         self.output_tokens += usage.get("output_tokens", 0) or 0
+        model = meta.get("model_name") or meta.get("model") or self.model
+        per_model = self.by_model.setdefault(model, {"input_tokens": 0, "output_tokens": 0})
+        per_model["input_tokens"] += usage.get("input_tokens", 0) or 0
+        per_model["output_tokens"] += usage.get("output_tokens", 0) or 0
         self.last_stop_reason = meta.get("stop_reason")
         self.last_refusal_category = (meta.get("stop_details") or {}).get("category") \
             if isinstance(meta.get("stop_details"), dict) else None
@@ -294,6 +324,7 @@ class RunObserver(BaseCallbackHandler):
 def _tokens(execution: AgentExecutionRecord, observer: RunObserver) -> None:
     execution.input_tokens = observer.input_tokens
     execution.output_tokens = observer.output_tokens
+    execution.usage_by_model = {model: dict(u) for model, u in observer.by_model.items()}
 
 
 def _finish(session: Session, ctx: ToolContext, execution: AgentExecutionRecord, tool_calls: list,

@@ -13,7 +13,7 @@ at await_decision with a LangGraph interrupt; decide_and_resume records a review
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
 import anthropic
@@ -27,6 +27,7 @@ from finrecon_ai.agents.persistence import persist_findings, persist_recommendat
 from finrecon_ai.agents.prompt_registry import load_prompt
 from finrecon_ai.agents.runtime import AgentFailed, run_agent
 from finrecon_ai.agents.tools import ToolContext
+from finrecon_ai.agents.workspace import StateWorkspaces, Workspaces
 from finrecon_ai.audit import record_event
 from finrecon_ai.authz import Actor, Permission, load_actor
 from finrecon_ai.cases.service import require_assignment, get_case, transition_case
@@ -77,6 +78,7 @@ class WorkflowDeps:
     unit_of_work: Callable[[], AbstractContextManager[Session]]
     llm: ChatModelFactory
     policy_store: PolicyStore | None
+    workspaces: Workspaces = field(default_factory=StateWorkspaces)  # where a case's agents keep their files
 
 
 class WorkflowError(Exception):
@@ -454,6 +456,7 @@ def _returned(decision: dict[str, Any] | None) -> bool:
 
 
 def _run(deps: WorkflowDeps, state: CaseState, agent: AgentName, brief: str, persist, execution_key: str) -> dict:
+    workspace = deps.workspaces.for_case(uuid.UUID(state["case_id"]))  # outside the transaction: a network call
     with deps.unit_of_work() as session:
         actor, case = _load(session, state)
         exception = session.get(ReconciliationException, case.exception_id)
@@ -463,7 +466,8 @@ def _run(deps: WorkflowDeps, state: CaseState, agent: AgentName, brief: str, per
         user_content = (f"Case {case.case_number} ({exception.category}, priority {case.priority}). "
                         f"<case_title>{as_data(case.title)}</case_title>\n\n{brief}")
         try:
-            result = run_agent(session, spec=load_prompt(agent), ctx=ctx, user_content=user_content, client=deps.llm)
+            result = run_agent(session, spec=load_prompt(agent), ctx=ctx, user_content=user_content, client=deps.llm,
+                               workspace=workspace)
         except AgentFailed as exc:
             return {"error": f"{agent.value}: {exc}"}
         except Exception:

@@ -80,7 +80,7 @@ def agent_metrics(session: Session, actor: Actor, days: int = 30) -> list[Versio
         if tokens:
             m.avg_input_tokens = round(sum(t[0] for t in tokens) / len(tokens))
             m.avg_output_tokens = round(sum(t[1] for t in tokens) / len(tokens))
-            cost = sum(_cost(m.model, i, o) for i, o in tokens)
+            cost = sum(_run_cost(r) for r in members if r.model)
             m.est_cost_usd = f"{cost:.2f}"
             m.est_cost_per_run_usd = f"{cost / len(tokens):.3f}"
         for r in members:
@@ -119,8 +119,18 @@ def _outcomes(session: Session, actor: Actor, run_ids: list[uuid.UUID]) -> dict[
     return result
 
 
+def _run_cost(run: AgentExecutionRecord) -> Decimal:
+    """Priced per model when the run recorded it (subagents on a smaller model), else all at the run's model."""
+    if run.usage_by_model:
+        return sum((_cost(model, u.get("input_tokens", 0), u.get("output_tokens", 0))
+                    for model, u in run.usage_by_model.items()), Decimal(0))
+    return _cost(run.model, run.input_tokens or 0, run.output_tokens or 0)
+
+
 def _cost(model: str | None, input_tokens: int, output_tokens: int) -> Decimal:
-    price_in, price_out = PRICE_PER_MTOK.get(model or "", (Decimal(0), Decimal(0)))
+    # The API may report a dated ID (claude-opus-5-5-2026…) for an alias: price by the alias it starts with.
+    key = next((k for k in PRICE_PER_MTOK if (model or "").startswith(k)), "")
+    price_in, price_out = PRICE_PER_MTOK.get(key, (Decimal(0), Decimal(0)))
     return (price_in * input_tokens + price_out * output_tokens) / Decimal(1_000_000)
 
 

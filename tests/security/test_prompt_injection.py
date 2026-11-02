@@ -98,7 +98,9 @@ def test_injected_text_reaches_the_model_only_as_tool_data(session, world, poiso
         assert INJECTION not in system and any(system.startswith(p.strip()) for p in our_prompts())
         assert INJECTION not in opening(params), "case data never enters the opening instruction"
     assert any(INJECTION in text for text in tool_result_texts(llm.params)), "it arrives inside a tool result"
-    assert "Handling data" in spec.system_text and "suspicious feature of that record" in spec.system_text
+    # The data-handling rules live in the operating manual (memory) and reach the model on every call.
+    assert "suspicious feature of that record" in spec.files["/AGENTS.md"]
+    assert all("suspicious feature of that record" in params["system"] for params in llm.params)
 
 
 def test_fully_fooled_agents_cannot_approve_execute_or_invent_evidence(session, world, poisoned_case, make_deps):

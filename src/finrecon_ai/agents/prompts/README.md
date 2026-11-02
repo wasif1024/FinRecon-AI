@@ -7,6 +7,9 @@ prompts/
   registry.yaml              # which version of each agent is active
   prompts.lock.json          # content hashes of released versions (immutable)
   _shared/                   # fragments included by several agents
+  _memory/AGENTS.md          # operating manual, loaded as Deep Agents memory (versions list it under `memory`)
+  _skills/<name>/SKILL.md    # playbook per exception category (versions list them under `skills`)
+  coordinators/              # ops-assistant and batch-investigator prompts (Agent Server only)
   <agent>/<version>/
     manifest.yaml            # model, effort, limits, allowed tools, subagents, output schema, changelog
     system.md                # system prompt; may include shared fragments

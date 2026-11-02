@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict
 from finrecon_ai.db.enums import AgentName
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
+MEMORY_DIR = PROMPTS_DIR / "_memory"  # operating manuals loaded as Deep Agents memory (AGENTS.md)
+SKILLS_DIR = PROMPTS_DIR / "_skills"  # playbooks loaded only when a task matches (<name>/SKILL.md)
 LOCK_FILE = PROMPTS_DIR / "prompts.lock.json"
 INCLUDE = re.compile(r"\{\{>\s*([\w./-]+)\s*\}\}")
 MAX_INCLUDE_DEPTH = 5
@@ -33,6 +35,8 @@ class SubagentManifest(BaseModel):
     system: str  # prompt file in the version folder
     tools: tuple[str, ...]
     max_turns: int = 6
+    model: str | None = None  # defaults to the parent's; narrow research suits a smaller model
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
 
 
 class Manifest(BaseModel):
@@ -50,6 +54,8 @@ class Manifest(BaseModel):
     output_schema: str
     tools: tuple[str, ...]
     subagents: tuple[SubagentManifest, ...] = ()
+    memory: tuple[str, ...] = ()  # files in _memory/, loaded into every model call
+    skills: tuple[str, ...] = ()  # folders in _skills/, each a SKILL.md read only when relevant
     changelog: tuple[dict[str, str], ...] = ()
 
 
@@ -59,6 +65,9 @@ class PromptSpec:
     system_text: str
     sha256: str  # over manifest + fully resolved system and subagent prompts
     subagent_texts: dict[str, str] = field(default_factory=dict)
+    # Files the agent's workspace is seeded with on every run, by path: memory at /<name>, skills at
+    # /skills/<name>/SKILL.md. Read-only to the agent.
+    files: dict[str, str] = field(default_factory=dict)
 
     @property
     def ref(self) -> str:
@@ -90,12 +99,19 @@ def load_prompt(agent: AgentName, version: str | None = None) -> PromptSpec:
     subagent_texts = {s.name: _load_text(folder / s.system, f"{agent}@{version}/{s.name}") for s in manifest.subagents}
     if len(subagent_texts) != len(manifest.subagents):
         raise PromptError(f"{agent}@{version}: duplicate subagent names")
-    hashed = "\0".join([raw_manifest, system_text, *(subagent_texts[s.name] for s in manifest.subagents)])
+    files = {f"/{name}": _load_text(MEMORY_DIR / name, f"memory {name}") for name in manifest.memory}
+    files |= {f"/skills/{name}/SKILL.md": _load_text(SKILLS_DIR / name / "SKILL.md", f"skill {name}")
+              for name in manifest.skills}
+    hashed = "\0".join([raw_manifest, system_text, *(subagent_texts[s.name] for s in manifest.subagents),
+                         *(f"{path}\0{text}" for path, text in sorted(files.items()))])
     digest = hashlib.sha256(hashed.encode()).hexdigest()
-    return PromptSpec(manifest=manifest, system_text=system_text, sha256=digest, subagent_texts=subagent_texts)
+    return PromptSpec(manifest=manifest, system_text=system_text, sha256=digest, subagent_texts=subagent_texts,
+                      files=files)
 
 
 def _load_text(path: Path, label: str) -> str:
+    if not path.is_file():
+        raise PromptError(f"{label}: {path.relative_to(PROMPTS_DIR)} not found")
     text = _resolve_includes(path.read_text(), depth=0).strip() + "\n"
     if "{{" in text:
         raise PromptError(f"{label}: unresolved template marker in prompt")

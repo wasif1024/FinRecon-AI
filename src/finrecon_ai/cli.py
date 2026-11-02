@@ -168,6 +168,11 @@ def main(argv: list[str] | None = None) -> int:
     pipeline = commands.add_parser("pipeline", help="ingest -> reconcile -> open cases as one workflow")
     pipeline.add_argument("--dir", type=Path, default=Path("data/synthetic"))
 
+    sandboxes = commands.add_parser("sandboxes", help="the LangSmith sandbox each case's agents work in")
+    sandbox_commands = sandboxes.add_subparsers(dest="sandbox_command", required=True)
+    sandbox_commands.add_parser("list", help="case sandboxes and their status")
+    sandbox_commands.add_parser("stop", help="stop running case sandboxes now (files are kept)")
+
     evals = commands.add_parser("eval", help="LangSmith evaluation of the agent workflow")
     eval_commands = evals.add_subparsers(dest="eval_command", required=True)
     eval_commands.add_parser("dataset", help="create or refresh the scenario dataset in LangSmith (no Claude calls)")
@@ -208,6 +213,18 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
     if args.command == "eval":
         return _eval(args)
+
+    if args.command == "sandboxes":
+        from finrecon_ai.agents.workspace import LangSmithWorkspaces
+
+        workspaces = LangSmithWorkspaces()
+        if args.sandbox_command == "stop":
+            stopped = workspaces.stop_running()
+            print(f"stopped {len(stopped)} sandbox(es)" + "".join(f"\n  {name}" for name in stopped))
+            return 0
+        for sandbox in workspaces.case_sandboxes():
+            print(f"{sandbox.name}  {getattr(sandbox, 'status', '?')}")
+        return 0
 
     if args.command == "openapi":
         from finrecon_ai.api.app import create_app
@@ -370,6 +387,7 @@ def _cases(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
 
 def _investigate(actor: Actor, case_id, case_number: str) -> int:
     from finrecon_ai.agents.llm import default_client
+    from finrecon_ai.agents.workspace import default_workspaces
     from finrecon_ai.policies.store import default_store
     from finrecon_ai.workflows.case_investigation import (
         WorkflowDeps,
@@ -380,7 +398,8 @@ def _investigate(actor: Actor, case_id, case_number: str) -> int:
         session_unit_of_work,
     )
 
-    deps = WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store())
+    deps = WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store(),
+                        workspaces=default_workspaces())
     with case_run_lock(case_id) as acquired, postgres_checkpointer() as checkpointer:
         if not acquired:
             print(f"{case_number}: its workflow is running in another process", file=sys.stderr)
@@ -396,6 +415,7 @@ def _investigate(actor: Actor, case_id, case_number: str) -> int:
 
 def _workflow_recover() -> int:
     from finrecon_ai.agents.llm import default_client
+    from finrecon_ai.agents.workspace import default_workspaces
     from finrecon_ai.policies.store import default_store
     from finrecon_ai.workflows.case_investigation import (
         WorkflowDeps,
@@ -404,7 +424,8 @@ def _workflow_recover() -> int:
         session_unit_of_work,
     )
 
-    deps = WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store())
+    deps = WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store(),
+                        workspaces=default_workspaces())
     recovered = recover_interrupted(deps, postgres_checkpointer)
     print(f"recovered {len(recovered)} interrupted run(s)" + "".join(f"\n  {c}" for c in recovered))
     return 0
@@ -499,6 +520,7 @@ def _users(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
 
 def _approvals(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
     from finrecon_ai.agents.llm import default_client
+    from finrecon_ai.agents.workspace import default_workspaces
     from finrecon_ai.approvals.executor import ExecutionError
     from finrecon_ai.approvals.service import ApprovalError, list_pending
     from finrecon_ai.db.models import ApprovalRequest, ResolutionRecommendation
@@ -523,7 +545,8 @@ def _approvals(session: Session, tenant: Tenant, args: argparse.Namespace) -> in
         _demo_actor(session, tenant, RoleName.MANAGER)
     session.commit()
     # Agents run again only on "return_for_investigation"; the client is created lazily by the SDK.
-    deps = WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store())
+    deps = WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store(),
+                        workspaces=default_workspaces())
     with postgres_checkpointer() as checkpointer:
         if args.approval_command == "resume":
             resumed = resume_decided(deps, checkpointer, tenant.id)

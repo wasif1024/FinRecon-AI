@@ -74,13 +74,15 @@ graph LR
   da --> out[structured report<br/>validated, then verified]
 ```
 
-| Agent | Subagents (own tool allow-list) |
-|---|---|
-| Investigation | `transaction-tracer` (search_transactions, get_counterparty_history, get_match_explanation), `policy-researcher` (search_policies) |
-| Risk Analysis | `pattern-analyst` (get_counterparty_history, search_transactions, find_similar_cases) |
-| Resolution | `policy-researcher` (search_policies) |
+| Agent (Opus 5.5) | Subagents (Haiku 5.5, own tool allow-list) | Skills |
+|---|---|---|
+| Investigation | `transaction-tracer` (search_transactions, get_counterparty_history, get_match_explanation), `policy-researcher` (search_policies) | all 8 |
+| Risk Analysis | `pattern-analyst` (get_counterparty_history, search_transactions, find_similar_cases) | duplicates, anomaly-indicators |
+| Resolution | `policy-researcher` (search_policies) | all 8 |
 
-Removed from the harness: `execute` (shell) and the general-purpose subagent that would inherit every tool.
+Files: the case's LangSmith sandbox (`agents/workspace.py`), seeded each run with the read-only `/AGENTS.md`
+memory and `/skills/`; working papers in `/workpapers/` carry across agents and rounds. Removed from the harness:
+`execute` (the sandbox is wrapped as files only) and the general-purpose subagent that would inherit every tool.
 Limits: model turns per agent and per subagent (`max_turns`), tool results over 20,000 characters refused.
 
 ```bash

@@ -121,6 +121,7 @@ def _handler(status_code: int):
 
 def default_runtime(settings: Settings) -> Runtime:
     from finrecon_ai.agents.llm import default_client
+    from finrecon_ai.agents.workspace import default_workspaces
     from finrecon_ai.policies.store import default_store
     from finrecon_ai.workflows.case_investigation import (
         WorkflowDeps,
@@ -134,8 +135,10 @@ def default_runtime(settings: Settings) -> Runtime:
     unit_of_work = session_unit_of_work()
     store = cache(default_store)
     llm = cache(default_client)
+    workspaces = cache(default_workspaces)
     return Runtime(
         jwt_secret=settings.jwt_secret or "", jwt_ttl_minutes=settings.jwt_ttl_minutes, unit_of_work=unit_of_work,
-        workflow_deps=lambda: WorkflowDeps(unit_of_work=unit_of_work, llm=llm(), policy_store=store()),
+        workflow_deps=lambda: WorkflowDeps(unit_of_work=unit_of_work, llm=llm(), policy_store=store(),
+                                           workspaces=workspaces()),
         checkpointer=postgres_checkpointer, policy_store=store, run_lock=case_run_lock, throttle=LoginThrottle(),
     )

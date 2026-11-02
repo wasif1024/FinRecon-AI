@@ -15,6 +15,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import select
 
 from finrecon_ai.agents.llm import ChatModelFactory
+from finrecon_ai.agents.workspace import StateWorkspaces, Workspaces
 from finrecon_ai.authz import Actor, load_actor
 from finrecon_ai.cases.service import create_cases_for_run
 from finrecon_ai.cli import DEMO_SOURCES
@@ -119,12 +120,14 @@ def scenario_details(manifest: dict, scenario: str) -> dict[str, Any]:
     return entry.get("details", {})
 
 
-def investigate(unit_of_work, llm: ChatModelFactory, store: PolicyStore, tenant: EvalTenant, scenario: str) -> dict[str, Any]:
+def investigate(unit_of_work, llm: ChatModelFactory, store: PolicyStore, tenant: EvalTenant, scenario: str,
+                workspaces: Workspaces | None = None) -> dict[str, Any]:
     """Run the real workflow on the scenario's case and collect what the evaluators need."""
     case_id = tenant.cases[scenario]
     with unit_of_work() as session:
         actor = load_actor(session, tenant.tenant_id, tenant.manager_id)
-    deps = WorkflowDeps(unit_of_work=unit_of_work, llm=llm, policy_store=store)
+    deps = WorkflowDeps(unit_of_work=unit_of_work, llm=llm, policy_store=store,
+                        workspaces=workspaces or StateWorkspaces())
     result = investigate_case(deps, InMemorySaver(), actor, case_id)
     return collect(unit_of_work, tenant.tenant_id, case_id, result.state, result.paused_for_approval)
 

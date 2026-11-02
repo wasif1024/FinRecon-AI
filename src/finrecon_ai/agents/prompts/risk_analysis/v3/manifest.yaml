@@ -1,0 +1,55 @@
+id: risk_analysis
+version: v3
+status: draft  # draft | released
+description: Assesses anomaly and duplicate indicators on a case and recommends whether to refer it (SRS 7.4).
+
+model: claude-opus-5-5
+effort: high
+max_tokens: 16000
+max_turns: 10
+
+system: system.md
+output_schema: risk_assessment
+
+tools:
+  - get_case
+  - get_case_transactions
+  - get_case_findings
+  - search_transactions
+  - get_counterparty_history
+  - find_similar_cases
+  - search_policies
+
+subagents:
+  - name: pattern-analyst
+    description: >-
+      Examines a counterparty's usual behaviour, related transactions the engine did not group, and similar past
+      cases with their outcomes. Give it the counterparty, amounts, dates and the indicator to examine.
+    system: pattern_analyst.md
+    max_turns: 8
+    model: claude-haiku-5-5
+    effort: medium
+    tools:
+      - get_counterparty_history
+      - search_transactions
+      - find_similar_cases
+
+memory:
+  - AGENTS.md
+
+skills:
+  - duplicates
+  - anomaly-indicators
+
+changelog:
+  - version: v1
+    notes: Initial risk analysis prompt.
+  - version: v2
+    notes: >-
+      Runs as a Deep Agent (LangChain + LangGraph) on ChatAnthropic: planning (write_todos), run-scoped scratch
+      files, and focused subagents with their own tool allow-lists. Case instructions unchanged from v1.
+  - version: v3
+    notes: >-
+      Deep Agents standards from Deep-Sales-Assistant: shared rules moved to an operating-manual memory
+      (_memory/AGENTS.md), one playbook skill per exception category, subagents on Claude Haiku 5.5, and a
+      per-case workspace (LangSmith sandbox) whose working papers carry across rounds.
