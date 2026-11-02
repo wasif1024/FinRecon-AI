@@ -260,3 +260,21 @@ def test_recorded_decision_resumes_after_interruption(session, world, fee_case, 
     session.refresh(fee_case)
     assert fee_case.status is CaseStatus.RESOLVED
     assert resume_decided(deps, saver, world[0].id) == [], "nothing left to resume"
+
+
+def test_a_lost_checkpoint_does_not_strand_the_approval(session, fee_case, approver, paused):
+    """The pause is rebuilt from the database (case, pending request, agent runs) and the decision applies."""
+    deps, _, request_id = paused(fee_case)
+    result = decide_and_resume(deps, InMemorySaver(), approver, request_id, APPROVE)  # an empty checkpoint store
+
+    assert not result.paused_for_approval
+    session.refresh(fee_case)
+    assert fee_case.status is CaseStatus.AWAITING_EVIDENCE
+    assert recommendation_of(session, request_id).status is RecommendationStatus.EXECUTED
+
+
+def test_the_pause_is_not_rebuilt_for_a_case_that_is_not_waiting(session, fee_case, make_deps):
+    from finrecon_ai.workflows.case_investigation import WorkflowError, resume_case
+
+    with pytest.raises(WorkflowError, match="not waiting for a decision"):
+        resume_case(make_deps(None), InMemorySaver(), fee_case.id, {"approval_decision_id": str(uuid.uuid4())})

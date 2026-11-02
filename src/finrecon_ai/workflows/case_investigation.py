@@ -136,6 +136,54 @@ def investigate_case(deps: WorkflowDeps, checkpointer: Any, actor: Actor, case_i
     return WorkflowResult(thread_id_for(case_id), bool(graph.get_state(config).next), dict(state))
 
 
+def _restore_paused(deps: WorkflowDeps, graph, config: dict[str, Any], case_id: uuid.UUID,
+                    decision: dict[str, Any]) -> None:
+    """Rebuild the approval pause from the database when its checkpoint is gone (checkpoints cleaned up, a run
+    whose checkpointer was in memory, a restored snapshot), so a recorded decision can still be applied. Only for a
+    thread with no checkpoint at all, and only from the decision being applied: it must be recorded for this
+    case's latest approval request. The case, that request and the agent runs hold everything the remaining steps
+    read; the decision is checked again by the paused step, as on any resume."""
+    from finrecon_ai.db.models import AgentExecutionRecord, ApprovalDecision
+
+    if graph.get_state(config).values:
+        return  # the thread exists and is elsewhere in the workflow: not ours to rewrite
+    try:
+        decision_id = uuid.UUID(str(decision.get("approval_decision_id")))
+    except ValueError:
+        return
+    with deps.unit_of_work() as session:
+        tenant_id = session.scalar(select(func.finrecon_case_tenant(case_id)))
+        if tenant_id is None:
+            return
+        bind_tenant(session, tenant_id)
+        row = session.get(ApprovalDecision, decision_id)
+        latest = session.scalar(select(ApprovalRequest).where(ApprovalRequest.case_id == case_id)
+                                .order_by(ApprovalRequest.created_at.desc()).limit(1))
+        if row is None or latest is None or row.approval_request_id != latest.id or latest.requested_by_user_id is None:
+            return
+        case = session.get(InvestigationCase, case_id)
+        runs = {r.agent_name: r for r in session.scalars(
+            select(AgentExecutionRecord).where(AgentExecutionRecord.case_id == case_id,
+                                               AgentExecutionRecord.parent_execution_id.is_(None))
+            .order_by(AgentExecutionRecord.started_at))}  # the latest run of each agent wins
+        category = session.scalar(select(ReconciliationException.category)
+                                  .where(ReconciliationException.id == case.exception_id))
+        rounds = session.scalar(select(func.count()).select_from(ApprovalRequest)
+                                .where(ApprovalRequest.case_id == case_id))
+        recommendation = session.get(ResolutionRecommendation, latest.recommendation_id)
+        state: CaseState = {
+            "tenant_id": str(tenant_id), "case_id": str(case_id), "requested_by": str(latest.requested_by_user_id),
+            "round": rounds, "category": str(category), "recommendation_id": str(recommendation.id),
+            "approval_request_id": str(latest.id), "decision": None, "rejected_output": [], "error": None,
+            "investigation_execution_id": str(runs[AgentName.INVESTIGATION].id)
+            if AgentName.INVESTIGATION in runs else None,
+            "risk_execution_id": str(runs[AgentName.RISK_ANALYSIS].id) if AgentName.RISK_ANALYSIS in runs else None,
+            "resolution_execution_id": str(recommendation.agent_execution_id),
+        }
+    graph.update_state(config, state, as_node="request_approval")
+    log.warning("workflow.pause_restored", case_id=case_id, approval_request_id=state["approval_request_id"])
+
+
 def _invoke(graph, config: dict[str, Any], value: Any, kind: str, case_id: uuid.UUID) -> dict[str, Any]:
     """graph.invoke inside an OpenTelemetry span, counting how the run ended."""
     with telemetry.tracer.start_as_current_span(f"workflow.{kind}", attributes={
@@ -190,6 +238,8 @@ def resume_case(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID, decis
         return resume_on_agent_server(thread, decision)
     graph = build_case_graph(deps, checkpointer)
     config = _run_config(None, case_id, f"case_resume:{decision.get('decision')}")
+    if graph.get_state(config).next != ("await_decision",):
+        _restore_paused(deps, graph, config, case_id, decision)
     if graph.get_state(config).next != ("await_decision",):
         raise WorkflowError("this case's workflow is not waiting for a decision")
     with log_context(case_id=case_id, workflow=WORKFLOW_VERSION):

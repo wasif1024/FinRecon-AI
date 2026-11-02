@@ -176,11 +176,14 @@ def investigate(case_id: uuid.UUID, background: BackgroundTasks, actor: Actor = 
 @router.get("/{case_id}/workflow", response_model=WorkflowOut)
 def workflow(case_id: uuid.UUID, actor: Actor = Depends(current_actor), session: Session = Depends(get_session),
              rt: Runtime = Depends(runtime)):
-    get_case(session, actor, case_id)  # permission and tenant check
+    case = get_case(session, actor, case_id)  # permission and tenant check
     with rt.checkpointer() as checkpointer:
         pending, values = workflow_state(rt.workflow_deps(), checkpointer, case_id)
-    paused = pending == ("await_decision",)
-    return WorkflowOut(case_id=case_id, started=bool(values), paused_for_approval=paused,
+    # Without a checkpoint (cleaned up, restored snapshot) a case awaiting approval is still paused there: deciding
+    # it rebuilds the pause (workflows/case_investigation.py, _restore_paused).
+    restored = not values and case.status is CaseStatus.AWAITING_APPROVAL
+    paused = pending == ("await_decision",) or restored
+    return WorkflowOut(case_id=case_id, started=bool(values) or restored, paused_for_approval=paused,
                        running=bool(pending) and not paused, round=values.get("round"),
                        approval_request_id=values.get("approval_request_id"),
                        recommendation_id=values.get("recommendation_id"), error=values.get("error"),
