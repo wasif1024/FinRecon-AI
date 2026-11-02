@@ -10,7 +10,7 @@ export type NavItem = {
 
 export const NAV: NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard, permission: "case:read", ready: true },
-  { href: "/cases", label: "Cases", icon: FolderSearch, permission: "case:read", ready: false },
+  { href: "/cases", label: "Cases", icon: FolderSearch, permission: "case:read", ready: true },
   { href: "/approvals", label: "Approvals", icon: ClipboardCheck, permission: "case:decide", ready: false },
   { href: "/data", label: "Data & runs", icon: Upload, permission: "data:import", ready: false },
   { href: "/policies", label: "Policies", icon: FileText, permission: "policy:read", ready: false },

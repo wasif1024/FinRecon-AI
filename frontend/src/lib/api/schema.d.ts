@@ -58,6 +58,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Users
+         * @description Colleagues in the caller's tenant: names for display and assignment. Never credentials.
+         */
+        get: operations["list_users_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sources": {
         parameters: {
             query?: never;
@@ -1032,6 +1052,20 @@ export interface components {
             comment?: string | null;
             closure_reason?: components["schemas"]["ClosureReason"] | null;
         };
+        /** UserOut */
+        UserOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Email */
+            email: string;
+            /** Full Name */
+            full_name: string;
+            /** Roles */
+            roles: string[];
+        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -1154,6 +1188,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeOut"];
+                };
+            };
+        };
+    };
+    list_users_users_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserOut"][];
                 };
             };
         };

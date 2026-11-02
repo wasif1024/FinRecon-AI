@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, union_all
 from sqlalchemy.orm import Session
 
 from finrecon_ai.api.deps import Runtime, current_actor, get_session, runtime
@@ -157,10 +157,18 @@ def workflow(case_id: uuid.UUID, actor: Actor = Depends(current_actor), session:
 
 @router.get("/{case_id}/audit", response_model=list[AuditEventOut])
 def case_audit(case_id: uuid.UUID, actor: Actor = Depends(current_actor), session: Session = Depends(get_session)):
+    """Everything that happened to the case, including events recorded against its recommendations, approval
+    requests and agent runs (resolution.executed, approval.decided, agent.tool_invoked ...)."""
     actor.require(Permission.AUDIT_READ)
     get_case(session, actor, case_id)
-    return session.scalars(select(AuditEvent).where(AuditEvent.tenant_id == actor.tenant_id,
-                                                    AuditEvent.entity_id == str(case_id)).order_by(AuditEvent.id)).all()
+    related = [str(case_id), *(str(i) for i in session.scalars(union_all(
+        select(ResolutionRecommendation.id).where(ResolutionRecommendation.case_id == case_id),
+        select(ApprovalRequest.id).where(ApprovalRequest.case_id == case_id),
+        select(AgentExecutionRecord.id).where(AgentExecutionRecord.case_id == case_id))))]
+    return session.scalars(select(AuditEvent).where(
+        AuditEvent.tenant_id == actor.tenant_id,
+        AuditEvent.entity_id.in_(related) | (AuditEvent.payload["case_id"].astext == str(case_id)),
+    ).order_by(AuditEvent.id)).all()
 
 
 def _run_investigation(rt: Runtime, actor: Actor, case_id: uuid.UUID) -> None:

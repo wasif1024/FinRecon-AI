@@ -240,6 +240,18 @@ def test_upload_and_reconcile(session, world, client, small_dataset_dir):
     assert client.get(f"/reconciliation/runs/{run.json()['id']}", headers=headers).status_code == 200
 
 
+def test_users_list_is_tenant_scoped_and_has_no_credentials(client, session):
+    other = Tenant(name="Other", slug="other-users")
+    session.add(other)
+    session.flush()
+    session.add(User(tenant_id=other.id, email="x@other.dev", full_name="Outsider"))
+    session.flush()
+    users = client.get("/users", headers=auth(client, RoleName.ANALYST)).json()
+    assert {u["email"] for u in users} >= {DEMO_USERS[RoleName.MANAGER][0]}
+    assert "x@other.dev" not in {u["email"] for u in users}
+    assert all(set(u) == {"id", "email", "full_name", "roles"} for u in users)
+
+
 def test_upload_needs_import_permission(client, session):
     source = session.scalar(select(FinancialSource))
     response = client.post(f"/sources/{source.id}/imports", files={"file": ("x.csv", b"a,b\n")},
@@ -308,6 +320,9 @@ def test_investigate_then_approve_over_http(session, world, case_ids, client, sc
     assert detail["status"] == CaseStatus.RESOLVED.value
     assert detail["recommendations"][-1]["status"] == "executed" and len(detail["decisions"]) == 1
     assert client.get("/audit-events/verify", headers=manager).json()["intact"]
+    trail = {e["event_type"] for e in client.get(f"/cases/{case.id}/audit", headers=manager).json()}
+    assert {"case.created", "workflow.started", "agent.tool_invoked", "agent.recommendation_recorded",
+            "approval.requested", "approval.decided", "resolution.executed"} <= trail
 
 
 def test_policy_upload_and_search(client):

@@ -49,6 +49,13 @@ class TokenOut(BaseModel):
     expires_at: datetime
 
 
+class UserOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    full_name: str
+    roles: list[str]
+
+
 class MeOut(BaseModel):
     user_id: uuid.UUID
     tenant_id: uuid.UUID
