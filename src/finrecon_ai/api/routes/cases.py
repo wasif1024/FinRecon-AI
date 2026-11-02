@@ -179,12 +179,14 @@ def workflow(case_id: uuid.UUID, actor: Actor = Depends(current_actor), session:
     case = get_case(session, actor, case_id)  # permission and tenant check
     with rt.checkpointer() as checkpointer:
         pending, values = workflow_state(rt.workflow_deps(), checkpointer, case_id)
-    # Without a checkpoint (cleaned up, restored snapshot) a case awaiting approval is still paused there: deciding
-    # it rebuilds the pause (workflows/case_investigation.py, _restore_paused).
-    restored = not values and case.status is CaseStatus.AWAITING_APPROVAL
-    paused = pending == ("await_decision",) or restored
-    return WorkflowOut(case_id=case_id, started=bool(values) or restored, paused_for_approval=paused,
-                       running=bool(pending) and not paused, round=values.get("round"),
+    # Without a checkpoint (cleaned up, a restored snapshot) the approval records still say how far it got: a case
+    # awaiting approval is paused there (deciding it rebuilds the pause: case_investigation._restore_paused), and
+    # one with earlier approval requests ran that many rounds.
+    rounds = 0 if values else session.scalar(
+        select(func.count()).select_from(ApprovalRequest).where(ApprovalRequest.case_id == case_id))
+    paused = pending == ("await_decision",) or (bool(rounds) and case.status is CaseStatus.AWAITING_APPROVAL)
+    return WorkflowOut(case_id=case_id, started=bool(values) or bool(rounds), paused_for_approval=paused,
+                       running=bool(pending) and not paused, round=values.get("round") or rounds or None,
                        approval_request_id=values.get("approval_request_id"),
                        recommendation_id=values.get("recommendation_id"), error=values.get("error"),
                        rejected_output=values.get("rejected_output", []),

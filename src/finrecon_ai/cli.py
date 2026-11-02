@@ -177,6 +177,16 @@ def main(argv: list[str] | None = None) -> int:
     db_grant.add_argument("role", nargs="?", help="default: the user in DATABASE_URL")
     db_commands.add_parser("check", help="what the DATABASE_URL login could do beyond reading and writing rows")
 
+    demo = commands.add_parser("demo", help="the demo snapshot: one tenant's data, exported and loaded exactly")
+    demo_commands = demo.add_subparsers(dest="demo_command", required=True)
+    demo_export = demo_commands.add_parser("export", help="as the owner: write a tenant's snapshot (no passwords)")
+    demo_export.add_argument("--tenant", default=DEMO_TENANT_SLUG)
+    demo_export.add_argument("--out", type=Path, default=Path("demo/snapshot.tar.gz"))
+    demo_export.add_argument("--policy-dir", type=Path, default=Path("data/policies"),
+                             help="where to find policy originals no longer in storage (checked by SHA-256)")
+    demo_load = demo_commands.add_parser("load", help="as the owner: load a snapshot into an empty database")
+    demo_load.add_argument("file", type=Path, nargs="?", default=Path("demo/snapshot.tar.gz"))
+
     sandboxes = commands.add_parser("sandboxes", help="the LangSmith sandbox each case's agents work in")
     sandbox_commands = sandboxes.add_subparsers(dest="sandbox_command", required=True)
     sandbox_commands.add_parser("list", help="case sandboxes and their status")
@@ -271,6 +281,29 @@ def _db(args: argparse.Namespace) -> int:
     return 0
 
 
+def _demo(args: argparse.Namespace) -> int:
+    from finrecon_ai.config import get_settings
+    from finrecon_ai.demo import SnapshotError, export_tenant, load_snapshot
+
+    settings = get_settings()
+    try:
+        if args.demo_command == "export":
+            rows = export_tenant(settings.owner_database_url, args.tenant, args.out, args.policy_dir)
+            print(f"wrote {args.out}: " + ", ".join(f"{name} {count}" for name, count in rows.items() if count))
+            return 0
+        from finrecon_ai.policies.store import default_store
+
+        result = load_snapshot(settings.owner_database_url, args.file,
+                               storage_dir=Path(settings.document_storage_dir), store=default_store())
+    except SnapshotError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"loaded tenant {result.tenant_slug}: {sum(result.rows.values())} rows, "
+          f"{result.policies_indexed} policies re-indexed, audit chain {'intact' if result.chain_intact else 'BROKEN'}")
+    print("set passwords next: finrecon users set-password <email>")
+    return 0 if result.chain_intact else 1
+
+
 def _setup_logging(command: str | None = None) -> None:
     from finrecon_ai.config import get_settings
 
@@ -296,6 +329,9 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
     if args.command == "db":
         return _db(args)
+
+    if args.command == "demo":
+        return _demo(args)
 
     if args.command == "sandboxes":
         from finrecon_ai.agents.workspace import LangSmithWorkspaces

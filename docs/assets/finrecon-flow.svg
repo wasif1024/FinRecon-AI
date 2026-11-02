@@ -44,10 +44,6 @@
   <text class="subtitle" x="40" y="94">Agentic financial reconciliation: deterministic matching, AI investigation, human-approved resolution.</text>
 
   <g transform="translate(905 46)">
-    <rect width="12" height="12" rx="3" fill="none" stroke="#60A5FA" stroke-width="1.5"/>
-    <text class="s" x="20" y="10">built</text>
-    <rect x="72" width="12" height="12" rx="3" fill="none" stroke="#64748B" stroke-width="1.5" stroke-dasharray="3 3"/>
-    <text class="s" x="92" y="10">planned</text>
     <circle cx="190" cy="6" r="4.5" fill="#34D399"/>
     <text class="s" x="200" y="10">matched</text>
     <circle cx="190" cy="28" r="4.5" fill="#FBBF24"/>
@@ -120,14 +116,14 @@
     <text class="s" x="646" y="288">incl. anomalies</text>
     <text class="s" x="646" y="304">→ cases, assigned</text>
 
-    <rect class="card" x="820" y="222" width="150" height="96" rx="12" stroke="#64748B" stroke-dasharray="6 5"/>
+    <rect class="card" x="820" y="222" width="150" height="96" rx="12" stroke="#5B4A9E"/>
     <rect class="pulse" x="820" y="222" width="150" height="96" rx="12" stroke="#A78BFA" style="animation-delay:2.7s"/>
     <text class="num" x="836" y="246">04</text>
     <text class="h" x="836" y="268">AI investigation</text>
-    <text class="s" x="836" y="288">LangGraph + Claude</text>
+    <text class="s" x="836" y="288">Deep Agents + Claude</text>
     <text class="s" x="836" y="304">facts vs hypotheses</text>
 
-    <rect class="card" x="1010" y="222" width="150" height="96" rx="12" stroke="#64748B" stroke-dasharray="6 5"/>
+    <rect class="card" x="1010" y="222" width="150" height="96" rx="12" stroke="#1F6F68"/>
     <rect class="pulse" x="1010" y="222" width="150" height="96" rx="12" stroke="#2DD4BF" style="animation-delay:3.6s"/>
     <text class="num" x="1026" y="246">05</text>
     <text class="h" x="1026" y="268">Human approval</text>
@@ -169,6 +165,6 @@
 
   <!-- Footer -->
   <line x1="40" y1="452" x2="1160" y2="452" stroke="#1B2840" stroke-width="1"/>
-  <text class="stat" x="40" y="482">3,020 synthetic records  ·  118 exceptions → 118 cases  ·  every planted problem caught  ·  0 false positives</text>
-  <text class="tech" x="1160" y="482" text-anchor="end">Python · PostgreSQL · LangGraph · Claude · Qdrant</text>
+  <text class="stat" x="40" y="480">3,020 synthetic records  ·  118 exceptions → 118 cases  ·  every planted problem caught  ·  0 false positives</text>
+  <text class="tech" x="40" y="506">Python · FastAPI · Connect/gRPC · PostgreSQL (RLS) · LangGraph · LangChain Deep Agents · Claude · LangSmith · OpenTelemetry · Qdrant · Next.js</text>
 </svg>

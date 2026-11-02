@@ -375,3 +375,27 @@ def test_errors_never_leak_internals(client, monkeypatch):
     response = client.get(f"/cases/{uuid.uuid4()}", headers=auth(client, RoleName.MANAGER))
     assert response.status_code == 500
     assert response.json() == {"detail": "internal error", "request_id": response.headers["X-Request-ID"]}
+
+
+def test_workflow_status_without_a_checkpoint_comes_from_the_approval_records(session, world, case_ids, client,
+                                                                              scripts, approver_headers):
+    """A restored snapshot or cleaned-up checkpoints: the case page still says how far the workflow got."""
+    case = case_of(session, world[0].id, ExceptionCategory.FEE_DISCREPANCY)
+    scripts.llm = AgentScripts(investigation=investigation_steps(),
+                               resolution=proposal_steps("confirm_fee_discrepancy"))
+    manager = auth(client, RoleName.MANAGER)
+    client.post(f"/cases/{case.id}/investigate", headers=manager)
+    request_id = client.get(f"/cases/{case.id}/workflow", headers=manager).json()["approval_request_id"]
+    empty = make_client(session, store_of(client), scripts, InMemorySaver())  # same database, no checkpoints
+
+    paused = empty.get(f"/cases/{case.id}/workflow", headers=manager).json()
+    assert paused["started"] and paused["paused_for_approval"] and paused["round"] == 1
+    assert empty.post(f"/approvals/{request_id}/decision", json={"decision": "approve"},
+                      headers=approver_headers).status_code == 202
+    finished = empty.get(f"/cases/{case.id}/workflow", headers=manager).json()
+    assert finished["started"] and not finished["paused_for_approval"] and not finished["running"]
+    assert client.get(f"/cases/{case.id}", headers=manager).json()["status"] == CaseStatus.RESOLVED.value
+
+
+def store_of(client):
+    return client.app.state.runtime.policy_store()

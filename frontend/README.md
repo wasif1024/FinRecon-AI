@@ -27,9 +27,10 @@ pnpm typecheck && pnpm lint
 
 ## End-to-end tests
 
-Run against a live API and the production build (or a deployed stack via `E2E_BASE_URL`):
+The suite expects the demo snapshot's data (CASE-000013 and its history, the policy library, decided approvals) and
+changes it as it runs, so run it against a freshly loaded demo, as CI does:
 
 ```bash
-pnpm build
-E2E_PASSWORD=<demo users' password> pnpm e2e
+DEMO_PASSWORD=<12+ characters> ../scripts/demo.sh --yes     # Docker demo on :3000
+E2E_PASSWORD=<the same> E2E_BASE_URL=http://localhost:3000 pnpm e2e
 ```

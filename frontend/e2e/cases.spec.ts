@@ -24,16 +24,16 @@ test("case list filters and paginates through the URL", async ({ page }) => {
   await page.getByLabel("Status").selectOption("awaiting_evidence");
   await page.getByRole("button", { name: "Apply" }).click();
   await expect(page).toHaveURL(/status=awaiting_evidence/);
-  await expect(page.getByRole("link", { name: "CASE-000008" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "CASE-000013" })).toBeVisible();
 });
 
 test("case detail shows the whole investigation", async ({ page }) => {
   await signIn(page, "manager@demo.finrecon.dev");
   await page.goto("/cases?status=awaiting_evidence");
-  await page.getByRole("link", { name: "CASE-000008" }).click();
+  await page.getByRole("link", { name: "CASE-000013" }).click();
 
-  await expect(page.getByRole("heading", { name: "CASE-000008" })).toBeVisible();
-  await expect(page.getByText("1.79 EUR").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "CASE-000013" })).toBeVisible();
+  await expect(page.getByText("2.53 GBP").first()).toBeVisible();
 
   // Recommendation, executed after a different manager approved it.
   await expect(page.getByText("Request documentation").first()).toBeVisible();
@@ -51,7 +51,7 @@ test("case detail shows the whole investigation", async ({ page }) => {
 
   // Matching engine's rule-by-rule result.
   await expect(page.getByRole("cell", { name: "Fee", exact: true })).toBeVisible();
-  await expect(page.getByText("pg_000096").first()).toBeVisible();
+  await expect(page.getByText("pg_000053").first()).toBeVisible();
 
   // Approval history names the approver; the manager also sees the audit trail.
   await expect(page.getByText("by Demo Approver")).toBeVisible();
@@ -61,8 +61,8 @@ test("case detail shows the whole investigation", async ({ page }) => {
 test("analysts do not see the audit trail", async ({ page }) => {
   await signIn(page, "analyst@demo.finrecon.dev");
   await page.goto("/cases?status=awaiting_evidence");
-  await page.getByRole("link", { name: "CASE-000008" }).click();
-  await expect(page.getByRole("heading", { name: "CASE-000008" })).toBeVisible();
+  await page.getByRole("link", { name: "CASE-000013" }).click();
+  await expect(page.getByRole("heading", { name: "CASE-000013" })).toBeVisible();
   await expect(page.getByText("Approval history")).toBeVisible();
   await expect(page.getByText("Audit trail", { exact: true })).toHaveCount(0);
 });
@@ -78,7 +78,7 @@ test("unknown and malformed case IDs show not found", async ({ page }) => {
 test("untrusted record text is shown as text, never run", async ({ page }) => {
   await signIn(page, "manager@demo.finrecon.dev");
   await page.goto("/cases?status=awaiting_evidence");
-  await page.getByRole("link", { name: "CASE-000008" }).click();
+  await page.getByRole("link", { name: "CASE-000013" }).click();
   let dialog = false;
   page.on("dialog", () => { dialog = true; });
   const record = page.locator("details", { hasText: "Original record for" }).first();

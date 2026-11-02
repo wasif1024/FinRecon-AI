@@ -39,6 +39,7 @@ jobs:
         run: |
           psql -h localhost -U postgres -c "CREATE ROLE finrecon LOGIN PASSWORD 'finrecon'"
           psql -h localhost -U postgres -c "CREATE DATABASE finrecon_test OWNER finrecon"
+          psql -h localhost -U postgres -c "CREATE DATABASE finrecon_demo_test OWNER finrecon"  # tests/test_demo.py
           psql -h localhost -U postgres -c "CREATE ROLE finrecon_app LOGIN PASSWORD 'finrecon_app' NOBYPASSRLS"
           psql -h localhost -U postgres -c "GRANT finrecon_app TO finrecon"
       - run: uv sync --locked
@@ -95,9 +96,36 @@ jobs:
                  -H 'Content-Type: application/json' -d '{}' | jq -r .code)
           test "$code" = unauthenticated
           docker compose run --rm -T app db check   # the API's login reads and writes rows only
+      - name: Load the demo snapshot
+        run: |
+          password=$(openssl rand -hex 16)
+          echo "::add-mask::$password"
+          echo "E2E_PASSWORD=$password" >> "$GITHUB_ENV"
+          DEMO_PASSWORD="$password" scripts/demo.sh --yes
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Browser suite against the demo (Chrome; the Claude test stays skipped)
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: http://localhost:3000
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec playwright test --reporter=line
       - name: Logs
         if: failure()
         run: docker compose --profile web logs
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: frontend/test-results/
+          retention-days: 7
 
   frontend:
     name: Frontend (lint + types + build)
