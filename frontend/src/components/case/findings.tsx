@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { FindingType } from "@/gen/finrecon/v1/enums_pb";
 import { humanize } from "@/lib/format";
 import { evidenceLabels } from "./labels";
 import type { Evidence, Finding } from "./types";
@@ -9,9 +10,9 @@ import type { Evidence, Finding } from "./types";
 const UNVERIFIED = "[Unverified: cited evidence could not be confirmed] ";
 
 const GROUPS = [
-  { type: "verified_fact", title: "Verified facts", hint: "Shown directly by a source record, rule result or policy." },
-  { type: "hypothesis", title: "Hypotheses", hint: "Explanations that still need confirming." },
-  { type: "outstanding_requirement", title: "Outstanding requirements", hint: "What a person needs to confirm or rule out." },
+  { type: FindingType.VERIFIED_FACT, title: "Verified facts", hint: "Shown directly by a source record, rule result or policy." },
+  { type: FindingType.HYPOTHESIS, title: "Hypotheses", hint: "Explanations that still need confirming." },
+  { type: FindingType.OUTSTANDING_REQUIREMENT, title: "Outstanding requirements", hint: "What a person needs to confirm or rule out." },
 ] as const;
 
 export function Findings({ findings, evidence }: { findings: Finding[]; evidence: Evidence[] }) {
@@ -22,7 +23,7 @@ export function Findings({ findings, evidence }: { findings: Finding[]; evidence
   return (
     <div className="space-y-6">
       {GROUPS.map(({ type, title, hint }) => {
-        const items = findings.filter((f) => f.finding_type === type);
+        const items = findings.filter((f) => f.findingType === type);
         if (items.length === 0) return null;
         return (
           <section key={type} aria-labelledby={`findings-${type}`} className="space-y-2">
@@ -52,12 +53,12 @@ function FindingItem({ finding, labels }: { finding: Finding; labels: Map<string
           </Badge>
         )}
         {finding.confidence && <Badge variant="secondary">confidence {Number(finding.confidence).toFixed(1)}</Badge>}
-        <span className="ml-auto text-xs text-muted-foreground">by {humanize(finding.recorded_by)}</span>
+        <span className="ml-auto text-xs text-muted-foreground">by {humanize(finding.recordedBy)}</span>
       </div>
       <p className="mt-1.5 leading-relaxed">{statement}</p>
-      {finding.evidence_ids.length > 0 && (
+      {finding.evidenceIds.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {finding.evidence_ids.map((id) => (
+          {finding.evidenceIds.map((id) => (
             <a key={id} href={`#evidence-${id}`}
                className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted">
               {labels.get(id) ?? "?"}

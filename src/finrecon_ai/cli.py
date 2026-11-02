@@ -161,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     openapi = commands.add_parser("openapi", help="write the API's OpenAPI schema (no database needed)")
     openapi.add_argument("--out", type=Path, default=Path("frontend/openapi.json"))
 
-    serve = commands.add_parser("serve", help="run the REST API")
+    serve = commands.add_parser("serve", help="run the API: REST, Connect and gRPC on one port")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
 
@@ -249,10 +249,19 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         return 0
 
     if args.command == "serve":
-        import uvicorn
+        import asyncio
 
-        uvicorn.run("finrecon_ai.api.app:create_app", factory=True, host=args.host, port=args.port,
-                    log_level="warning")  # our own request logs go through finrecon logging
+        from hypercorn.asyncio import serve as hypercorn_serve
+        from hypercorn.config import Config
+
+        from finrecon_ai.api.app import create_app
+
+        # Hypercorn speaks HTTP/1.1 and cleartext HTTP/2 on the same port; gRPC needs HTTP/2 (trailers).
+        # Request logs go through finrecon logging, so Hypercorn's access log stays off.
+        config = Config()
+        config.bind = [f"{args.host}:{args.port}"]
+        config.loglevel = "WARNING"
+        asyncio.run(hypercorn_serve(create_app(), config))
         return 0
 
     if args.command == "generate-data":

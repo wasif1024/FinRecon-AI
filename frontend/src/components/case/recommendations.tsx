@@ -2,7 +2,8 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { formatDateTime, formatMoney, humanize } from "@/lib/format";
+import { RecommendationStatusSchema, ResolutionTypeSchema } from "@/gen/finrecon/v1/enums_pb";
+import { enumLabel, formatDateTime, formatMoney, humanize } from "@/lib/format";
 import type { Recommendation } from "./types";
 
 type Action = { action_steps?: string[]; contact?: string; amount?: string | null; currency?: string | null;
@@ -29,14 +30,14 @@ export function Recommendations({ recommendations }: { recommendations: Recommen
 }
 
 function RecommendationCard({ recommendation: r, compact = false }: { recommendation: Recommendation; compact?: boolean }) {
-  const action = r.proposed_action as Action;
-  const result = r.execution_result as { case_status?: string; follow_up?: { steps?: string[] }; match_id?: string } | null;
+  const action = (r.proposedAction ?? {}) as Action;
+  const result = r.executionResult as { case_status?: string; follow_up?: { steps?: string[] }; match_id?: string } | undefined;
   return (
     <div className="space-y-3 rounded-lg border p-4 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-semibold">{humanize(r.resolution_type)}</span>
+        <span className="font-semibold">{enumLabel(ResolutionTypeSchema, r.resolutionType)}</span>
         <Badge variant="secondary">v{r.version}</Badge>
-        <Badge variant="outline">{humanize(r.status)}</Badge>
+        <Badge variant="outline">{enumLabel(RecommendationStatusSchema, r.status)}</Badge>
         {r.confidence && <span className="text-xs text-muted-foreground">confidence {Number(r.confidence).toFixed(1)}</span>}
         <span className="ml-auto tabular-nums">{formatMoney(action.amount, action.currency)}</span>
       </div>
@@ -63,7 +64,7 @@ function RecommendationCard({ recommendation: r, compact = false }: { recommenda
             <Alert>
               <CheckCircle2 className="size-4" />
               <AlertDescription>
-                Executed {formatDateTime(r.executed_at)}: case moved to {humanize(result.case_status)}
+                Executed {formatDateTime(r.executedAt)}: case moved to {humanize(result.case_status)}
                 {result.match_id ? "; manual match recorded" : ""}
                 {result.follow_up?.steps?.length ? `; ${result.follow_up.steps.length} follow-up steps recorded` : ""}.
               </AlertDescription>

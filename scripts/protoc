@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# protoc bundled with grpcio-tools, so generated Python matches the protobuf runtime in uv.lock. Used by buf.gen.yaml.
+exec "$(dirname "$0")/../.venv/bin/python" -m grpc_tools.protoc "$@"

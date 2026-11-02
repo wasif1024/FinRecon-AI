@@ -46,10 +46,15 @@ _UNAUTHORIZED = {"WWW-Authenticate": "Bearer"}
 
 def current_actor(credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
                   session: Session = Depends(get_session), rt: Runtime = Depends(runtime)) -> Actor:
-    if credentials is None:
+    return authenticate(session, rt, credentials.credentials if credentials else None)
+
+
+def authenticate(session: Session, rt: Runtime, token: str | None) -> Actor:
+    """The caller behind an access token, for REST and RPC. Raises 401 for a missing, invalid or expired token."""
+    if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "not authenticated", headers=_UNAUTHORIZED)
     try:
-        claims = decode_token(credentials.credentials, rt.jwt_secret)
+        claims = decode_token(token, rt.jwt_secret)
         # Roles come from the database on every request, not from the token.
         return load_actor(session, claims.tenant_id, claims.user_id)
     except (InvalidToken, PermissionDenied):

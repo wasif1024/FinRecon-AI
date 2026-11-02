@@ -1,7 +1,7 @@
-"""FastAPI application. Run with: uv run finrecon serve  (or uvicorn finrecon_ai.api.app:create_app --factory)
+"""FastAPI application with the Connect/gRPC services mounted on it. Run with: uv run finrecon serve
 
-Every endpoint goes through the same permission-checked services as the CLI; the API adds authentication,
-HTTP error mapping and request IDs, never its own business rules.
+Every endpoint and RPC goes through the same permission-checked services as the CLI; the API adds authentication,
+error mapping and request IDs, never its own business rules.
 """
 
 import re
@@ -12,8 +12,11 @@ from functools import cache
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from finrecon_ai.api.deps import Runtime
+from finrecon_ai.api.errors import ERROR_STATUS
 from finrecon_ai.api.routes import (
     approvals,
     audit,
@@ -27,38 +30,15 @@ from finrecon_ai.api.routes import (
     sources,
     users,
 )
+from finrecon_ai.api.rpc import rpc_applications
 from finrecon_ai.api.security import MIN_SECRET_LENGTH, LoginThrottle
-from finrecon_ai.approvals.executor import ExecutionError
-from finrecon_ai.approvals.service import ApprovalError
-from finrecon_ai.authz import PermissionDenied
-from finrecon_ai.cases.service import CaseError, InvalidTransition
 from finrecon_ai.config import Settings, get_settings
-from finrecon_ai.errors import NotFound
-from finrecon_ai.ingestion.service import IngestionError
 from finrecon_ai.log import configure_logging, get_logger, log_context, new_correlation_id
-from finrecon_ai.policies.parsing import DocumentRejected
-from finrecon_ai.reconciliation.service import ReconciliationError
-from finrecon_ai.workflows.case_investigation import WorkflowError
 
 log = get_logger(__name__)
 
 REQUEST_ID_HEADER = "X-Request-ID"
 _SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
-
-# Most specific first. Service messages are safe to show: they never contain other tenants' data.
-ERROR_STATUS: list[tuple[type[Exception], int]] = [
-    (PermissionDenied, 403),
-    (NotFound, 404),
-    (InvalidTransition, 409),
-    (WorkflowError, 409),
-    (ExecutionError, 409),
-    (ApprovalError, 409),
-    (CaseError, 422),
-    (IngestionError, 422),
-    (ReconciliationError, 422),
-    (DocumentRejected, 422),
-]
-
 
 def create_app(settings: Settings | None = None, rt: Runtime | None = None) -> FastAPI:
     settings = settings or get_settings()
@@ -79,26 +59,51 @@ def create_app(settings: Settings | None = None, rt: Runtime | None = None) -> F
                        allow_methods=["*"], allow_headers=["Authorization", "Content-Type", REQUEST_ID_HEADER],
                        expose_headers=[REQUEST_ID_HEADER])
 
-    @app.middleware("http")
-    async def request_context(request: Request, call_next):
-        incoming = request.headers.get(REQUEST_ID_HEADER, "")
-        request_id = incoming if _SAFE_REQUEST_ID.match(incoming) else new_correlation_id()
-        with log_context(correlation_id=request_id):
-            try:
-                response = await call_next(request)
-            except Exception:
-                log.exception("api.unhandled_error", method=request.method, path=request.url.path)
-                response = JSONResponse({"detail": "internal error", "request_id": request_id}, status_code=500)
-            log.info("api.request", method=request.method, path=request.url.path, status=response.status_code)
-        response.headers[REQUEST_ID_HEADER] = request_id
-        return response
+    app.add_middleware(RequestContext)
 
     for error_type, status_code in ERROR_STATUS:
         app.add_exception_handler(error_type, _handler(status_code))
 
     for module in (health, auth, users, sources, reconciliation, cases, approvals, policies, reports, metrics, audit):
         app.include_router(module.router)
+    for rpc_app in rpc_applications(rt):
+        app.mount(rpc_app.path, rpc_app)
     return app
+
+
+class RequestContext:
+    """Request ID, request log line and the last-resort 500, for REST and RPC alike. Plain ASGI rather than
+    @app.middleware("http"), which would drop the HTTP trailers gRPC sends its status in."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        incoming = Headers(scope=scope).get(REQUEST_ID_HEADER, "")
+        request_id = incoming if _SAFE_REQUEST_ID.match(incoming) else new_correlation_id()
+        status: int | None = None
+
+        async def send_with_id(message: Message) -> None:
+            nonlocal status
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                message.setdefault("headers", [])
+                MutableHeaders(scope=message)[REQUEST_ID_HEADER] = request_id
+            await send(message)
+
+        with log_context(correlation_id=request_id):
+            try:
+                await self.app(scope, receive, send_with_id)
+            except Exception:
+                log.exception("api.unhandled_error", method=scope["method"], path=scope["path"])
+                if status is not None:  # the response has started; nothing more can be sent
+                    raise
+                await JSONResponse({"detail": "internal error", "request_id": request_id}, status_code=500,
+                                   headers={REQUEST_ID_HEADER: request_id})(scope, receive, send)
+                status = 500
+            log.info("api.request", method=scope["method"], path=scope["path"], status=status)
 
 
 @asynccontextmanager

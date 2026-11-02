@@ -1,0 +1,22 @@
+# Code generation for proto/ (run scripts/gen-rpc.sh; CI fails if the generated code is out of date).
+#   Python: messages and type stubs into src/finrecon/ (protoc from grpcio-tools, matching the protobuf runtime),
+#           Connect server and client stubs from protoc-gen-connect-python.
+#   TypeScript: messages and service descriptors into frontend/src/gen/ (protobuf-es v2; Connect-ES uses them).
+version: v2
+inputs:
+  - directory: proto
+plugins:
+  - protoc_builtin: python
+    protoc_path: scripts/protoc
+    out: src
+  - protoc_builtin: pyi
+    protoc_path: scripts/protoc
+    out: src
+  - local: .venv/bin/protoc-gen-connect-python
+    out: src
+  - local: frontend/node_modules/.bin/protoc-gen-es
+    out: frontend/src/gen
+    opt:
+      - target=ts
+    include_imports: false
+clean: false

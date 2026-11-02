@@ -1,7 +1,32 @@
-import type { components } from "@/lib/api/schema";
+import type { DescEnum } from "@bufbuild/protobuf";
+import { timestampDate, type Timestamp } from "@bufbuild/protobuf/wkt";
 
-export type CaseStatus = components["schemas"]["CaseStatus"];
-export type Severity = components["schemas"]["Severity"];
+/**
+ * An RPC enum value as the API's own value: CaseStatus.AWAITING_APPROVAL → "awaiting_approval" (the proto names
+ * are the database values, upper-cased behind the enum's prefix). "" for UNSPECIFIED or an unknown number.
+ */
+export function enumValue(schema: DescEnum, value: number): string {
+  const found = schema.values.find((v) => v.number === value);
+  return found && value !== 0 ? found.localName.toLowerCase() : "";
+}
+
+/** The reverse of enumValue: "awaiting_approval" → CaseStatus.AWAITING_APPROVAL, or undefined. */
+export function enumFrom<T extends number>(schema: DescEnum, value: string | undefined): T | undefined {
+  const found = value ? schema.values.find((v) => v.number !== 0 && v.localName === value.toUpperCase()) : undefined;
+  return found?.number as T | undefined;
+}
+
+/** CaseStatus.AWAITING_APPROVAL → "Awaiting approval" */
+export function enumLabel(schema: DescEnum, value: number): string {
+  return humanize(enumValue(schema, value));
+}
+
+type When = string | Timestamp | null | undefined;
+
+function iso(value: When): string | undefined {
+  if (!value) return undefined;
+  return typeof value === "string" ? value : timestampDate(value).toISOString();
+}
 
 /**
  * Formats the API's exact decimal string (e.g. "1.7900") without converting it to a float, which could round:
@@ -17,13 +42,15 @@ export function formatMoney(amount: string | null | undefined, currency?: string
   return `${negative ? "−" : ""}${grouped}.${decimals}${currency ? ` ${currency}` : ""}`;
 }
 
-export function formatDate(value: string | null | undefined): string {
+export function formatDate(when: When): string {
+  const value = iso(when);
   if (!value) return "—";
   const date = new Date(value.length === 10 ? `${value}T00:00:00Z` : value);
   return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" });
 }
 
-export function formatDateTime(value: string | null | undefined): string {
+export function formatDateTime(when: When): string {
+  const value = iso(when);
   if (!value) return "—";
   return new Date(value).toLocaleString("en-GB", {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC",

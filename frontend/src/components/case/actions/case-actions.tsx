@@ -10,23 +10,23 @@ import { InvestigatePanel } from "./investigate";
 export function CaseActions({ detail, workflow, users }: { detail: CaseDetail; workflow: Workflow; users: User[] }) {
   const { actions } = detail;
   const sections = [
-    actions.pending_approval_request_id && (actions.can_decide || actions.decide_blocked_reason) && (
-      actions.can_decide
-        ? <DecisionForm key="decide" requestId={actions.pending_approval_request_id} />
+    actions?.pendingApprovalRequestId && (actions.canDecide || actions.decideBlockedReason) && (
+      actions.canDecide
+        ? <DecisionForm key="decide" requestId={actions.pendingApprovalRequestId} />
         : (
           <Alert key="blocked">
             <ShieldAlert className="size-4" />
-            <AlertDescription>{actions.decide_blocked_reason}</AlertDescription>
+            <AlertDescription>{actions.decideBlockedReason}</AlertDescription>
           </Alert>
         )
     ),
-    (actions.can_investigate || workflow.running) && (
-      <InvestigatePanel key="investigate" caseId={detail.id} canStart={actions.can_investigate}
+    (actions?.canInvestigate || workflow.running) && (
+      <InvestigatePanel key="investigate" caseId={detail.id} canStart={actions?.canInvestigate ?? false}
                         initiallyRunning={workflow.running} />
     ),
-    actions.can_assign && <AssignForm key="assign" caseId={detail.id} users={users} assignedTo={detail.assigned_to} />,
-    actions.transitions.length > 0 && <StatusForm key="status" caseId={detail.id} transitions={actions.transitions} />,
-    actions.can_add_note && <NoteForm key="note" caseId={detail.id} />,
+    actions?.canAssign && <AssignForm key="assign" caseId={detail.id} users={users} assignedTo={detail.assignedTo} />,
+    actions && actions.transitions.length > 0 && <StatusForm key="status" caseId={detail.id} transitions={actions.transitions} />,
+    actions?.canAddNote && <NoteForm key="note" caseId={detail.id} />,
   ].filter(Boolean);
 
   if (sections.length === 0) {

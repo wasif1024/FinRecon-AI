@@ -5,20 +5,19 @@ import { Meter, RankedBars } from "@/components/charts/ranked-bars";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, unwrap } from "@/lib/api/client";
-import type { components } from "@/lib/api/schema";
+import { CaseStatus } from "@/gen/finrecon/v1/enums_pb";
 import { getCurrentUser } from "@/lib/dal";
 import { formatDateTime, formatMoney, humanize } from "@/lib/format";
+import { rpc } from "@/lib/rpc";
 
 export const metadata: Metadata = { title: "Overview · FinRecon AI" };
 
-type CaseStatus = components["schemas"]["CaseStatus"];
-
 // Case statuses grouped the way an operations team reads them. The full overview arrives in 5d.
 const GROUPS: { label: string; statuses: CaseStatus[] }[] = [
-  { label: "New", statuses: ["new"] },
-  { label: "In investigation", statuses: ["investigating", "awaiting_evidence"] },
-  { label: "Awaiting approval", statuses: ["awaiting_approval"] },
-  { label: "Resolved or closed", statuses: ["resolved", "closed"] },
+  { label: "New", statuses: [CaseStatus.NEW] },
+  { label: "In investigation", statuses: [CaseStatus.INVESTIGATING, CaseStatus.AWAITING_EVIDENCE] },
+  { label: "Awaiting approval", statuses: [CaseStatus.AWAITING_APPROVAL] },
+  { label: "Resolved or closed", statuses: [CaseStatus.RESOLVED, CaseStatus.CLOSED] },
 ];
 
 export default function OverviewPage() {
@@ -106,7 +105,7 @@ async function Greeting() {
   const user = await getCurrentUser();
   return (
     <div>
-      <h1 className="text-2xl font-semibold tracking-tight">Welcome, {user.full_name}</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Welcome, {user.fullName}</h1>
       <p className="text-sm text-muted-foreground">Reconciliation cases for your organisation.</p>
     </div>
   );
@@ -114,10 +113,8 @@ async function Greeting() {
 
 async function CaseCount({ label, statuses }: { label: string; statuses: CaseStatus[] }) {
   await getCurrentUser();
-  const totals = await Promise.all(statuses.map(async (status) => {
-    const page = unwrap(await (await api()).GET("/cases", { params: { query: { status, limit: 1 } } }));
-    return page.total;
-  }));
+  const client = await rpc();
+  const totals = await Promise.all(statuses.map(async (status) => (await client.cases.listCases({ status, limit: 1 })).total));
   return (
     <Card>
       <CardHeader className="pb-2">

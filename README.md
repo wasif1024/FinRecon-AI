@@ -59,15 +59,15 @@ for review, never as fraud determinations.
 ## Dashboard
 
 ```bash
-uv run finrecon serve                  # API on :8000
+uv run finrecon serve                  # API on :8000 (REST, Connect and gRPC)
 cd frontend && pnpm install && pnpm dev   # dashboard on :3000
 # or everything in Docker:
 docker compose --profile web up -d --build
 ```
 
 Sign in with a demo user (set passwords with `uv run finrecon users set-password <email>`). The dashboard is a
-Next.js app that keeps the API token in an httpOnly cookie on its own server; see
-[frontend/README.md](frontend/README.md).
+Next.js app that keeps the API token in an httpOnly cookie on its own server and talks to the API over Connect
+(case work) and REST (uploads, downloads, insight pages); see [frontend/README.md](frontend/README.md).
 
 | Page | For | What it does |
 |---|---|---|
@@ -104,6 +104,36 @@ characters) in `.env`; the API will not start without it.
 | Approvals | `GET /approvals`, `POST /approvals/{id}/decision` |
 | Policies | `GET/POST /policies`, `GET /policies/search` |
 | Audit | `GET /audit-events`, `GET /audit-events/verify` |
+
+## Connect / gRPC
+
+The case work is also an RPC API, defined once in [proto/finrecon/v1](proto/finrecon/v1) and managed with
+[Buf](https://buf.build): `IdentityService` (Login, GetMe, ListUsers), `CaseService` (list, detail, assign,
+transition, notes, start investigation, workflow status, case audit trail) and `ApprovalService` (pending
+approvals, decide). The dashboard's server calls these over Connect in binary protobuf, so the frontend and
+backend share one typed contract instead of two hand-kept ones.
+
+`finrecon serve` runs Hypercorn, which speaks HTTP/1.1 and cleartext HTTP/2 on one port, so the same services
+answer **Connect** (HTTP/1.1 or 2, JSON or protobuf), **gRPC** (HTTP/2) and REST side by side. Each RPC calls the
+same function as its REST endpoint — permissions, tenant isolation, validation and audit are shared — and service
+errors map to Connect codes (`PERMISSION_DENIED`, `NOT_FOUND`, `FAILED_PRECONDITION`, `INVALID_ARGUMENT`,
+`UNAUTHENTICATED`, `RESOURCE_EXHAUSTED`); anything unexpected is logged and reported as `INTERNAL` with no detail.
+
+```bash
+# gRPC (token from Login or POST /auth/login)
+grpcurl -plaintext -import-path proto -proto finrecon/v1/cases.proto \
+  -H "authorization: Bearer $TOKEN" -d '{"status": "CASE_STATUS_AWAITING_APPROVAL"}' \
+  localhost:8000 finrecon.v1.CaseService/ListCases
+# Connect JSON: a plain POST
+curl -X POST localhost:8000/finrecon.v1.CaseService/ListCases -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"limit": 5}'
+```
+
+After changing a `.proto` file run `scripts/gen-rpc.sh` (or `pnpm gen:rpc` in `frontend/`): it lints with Buf and
+regenerates the Python messages and Connect stubs (`src/finrecon/`, protoc from grpcio-tools so they match the
+protobuf runtime) and the TypeScript ones (`frontend/src/gen/`, protobuf-es). Generated code is committed; CI fails
+if it is stale, and pull requests fail on a breaking change to the contract. Enum values are the database values
+behind the enum's prefix (`CASE_STATUS_AWAITING_APPROVAL` is `awaiting_approval`); a test keeps them in step.
 
 ## Agent workflows
 
@@ -231,6 +261,7 @@ call Claude, send traces or create sandboxes):
 
 - **Backend:** `ruff check`, `langgraph validate`, and the full test suite against PostgreSQL 18, connected as a
   non-superuser table owner (as the app is) so row-level security is really enforced.
+- **RPC contract:** `buf lint`, generated code up to date, and (on pull requests) `buf breaking` against `main`.
 - **Frontend:** `pnpm lint`, `pnpm typecheck`, `pnpm build`.
 
 ## Policy documents

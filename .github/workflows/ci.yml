@@ -44,6 +44,33 @@ jobs:
       - run: uv run langgraph validate
       - run: uv run pytest -q
 
+  rpc:
+    name: RPC contract (buf lint + generated code + breaking changes)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # buf breaking compares against main
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: uv sync --locked
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - name: Lint proto/ and check the committed generated code is current
+        run: scripts/gen-rpc.sh --check
+      - name: No breaking changes against main
+        if: github.event_name == 'pull_request'
+        run: frontend/node_modules/.bin/buf breaking proto --against '.git#branch=origin/main,subdir=proto'
+
   frontend:
     name: Frontend (lint + types + build)
     runs-on: ubuntu-latest

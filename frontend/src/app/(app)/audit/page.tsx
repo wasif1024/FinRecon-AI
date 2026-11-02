@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError, api, unwrap } from "@/lib/api/client";
+import { rpc } from "@/lib/rpc";
 import { getCurrentUser } from "@/lib/dal";
 import { VerifyChain } from "./verify-chain";
 
@@ -55,8 +56,8 @@ async function Events({ searchParams }: { searchParams: PageProps<"/audit">["sea
     }
     throw error;
   }
-  const users = unwrap(await client.GET("/users"));
-  const names = new Map(users.map((u) => [u.id, u.full_name]));
+  const { users } = await (await rpc()).identity.listUsers({});
+  const names = new Map(users.map((u) => [u.id, u.fullName]));
   const older = events.length === PAGE ? events[events.length - 1].id : undefined;
 
   return (
@@ -72,7 +73,10 @@ async function Events({ searchParams }: { searchParams: PageProps<"/audit">["sea
           <Button type="submit" variant="secondary">Filter</Button>
           {type && <Link href="/audit" className={buttonVariants({ variant: "ghost" })}>Clear</Link>}
         </Form>
-        <AuditTrail events={events} names={names} />
+        <AuditTrail names={names} events={events.map((e) => ({
+          id: e.id, occurredAt: e.occurred_at, eventType: e.event_type, actorType: e.actor_type,
+          actorUserId: e.actor_user_id ?? undefined, payload: e.payload,
+        }))} />
         {older && (
           <Link href={`/audit?${new URLSearchParams({ ...(type ? { type } : {}), before: String(older) })}`}
                 className={buttonVariants({ variant: "outline", size: "sm" })}>Older events</Link>

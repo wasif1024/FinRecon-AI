@@ -1,16 +1,9 @@
-import type { components } from "@/lib/api/schema";
+// The case work views render the RPC messages (proto/finrecon/v1) directly.
+export type {
+  AuditEvent, CaseDetail, Evidence, Finding, Match, Recommendation, Transaction, TransitionOption, Workflow,
+} from "@/gen/finrecon/v1/cases_pb";
+export type { PendingApproval } from "@/gen/finrecon/v1/approvals_pb";
+export type { User } from "@/gen/finrecon/v1/identity_pb";
 
-type S = components["schemas"];
-export type CaseDetail = S["CaseDetailOut"];
-export type Finding = S["FindingOut"];
-export type Evidence = S["EvidenceOut"];
-export type Transaction = S["TransactionOut"];
-export type Match = S["MatchOut"];
-export type Recommendation = S["RecommendationOut"];
-export type AuditEvent = S["AuditEventOut"];
-export type Workflow = S["WorkflowOut"];
-export type User = S["UserOut"];
-export type PendingApproval = S["PendingApprovalOut"];
-
-/** Display names for user IDs, built once per page from GET /users. */
+/** Display names for user IDs, built once per page from ListUsers. */
 export type Names = Map<string, string>;

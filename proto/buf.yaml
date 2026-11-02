@@ -1,0 +1,10 @@
+# Buf workspace for the FinRecon RPC contract. Lint and breaking-change rules run in CI (see scripts/gen-rpc.sh).
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

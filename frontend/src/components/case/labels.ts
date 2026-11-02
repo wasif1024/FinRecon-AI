@@ -5,7 +5,7 @@ import type { Evidence } from "./types";
  * its own evidence E1, E2…; when several runs reuse a label, later runs get a prefix (2·E1) to keep labels unique.
  */
 export function evidenceLabels(evidence: Evidence[]): Map<string, string> {
-  const runs = [...new Set(evidence.map((e) => e.agent_execution_id ?? "analyst"))];
+  const runs = [...new Set(evidence.map((e) => e.agentExecutionId ?? "analyst"))];
   const counts = new Map<string, number>();
   for (const e of evidence) {
     const label = agentLabel(e);
@@ -14,12 +14,12 @@ export function evidenceLabels(evidence: Evidence[]): Map<string, string> {
   return new Map(evidence.map((e, i) => {
     const label = agentLabel(e);
     if (!label) return [e.id, `N${i + 1}`]; // analyst notes and unlabelled evidence
-    const run = runs.indexOf(e.agent_execution_id ?? "analyst");
+    const run = runs.indexOf(e.agentExecutionId ?? "analyst");
     return [e.id, (counts.get(label) ?? 0) > 1 && run > 0 ? `${run + 1}·${label}` : label];
   }));
 }
 
 function agentLabel(e: Evidence): string | undefined {
-  const label = (e.source_reference as { label?: unknown }).label;
+  const label = e.sourceReference?.label;
   return typeof label === "string" && label ? label : undefined;
 }

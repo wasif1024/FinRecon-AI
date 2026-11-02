@@ -7,18 +7,20 @@ import { PriorityBadge, StatusBadge } from "@/components/case/badges";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api, unwrap } from "@/lib/api/client";
+import { CaseStatus, CaseStatusSchema, Severity, SeveritySchema } from "@/gen/finrecon/v1/enums_pb";
 import { getCurrentUser } from "@/lib/dal";
-import { formatDate, formatMoney, humanize, type CaseStatus, type Severity } from "@/lib/format";
+import { enumFrom, formatDate, formatMoney, humanize } from "@/lib/format";
+import { rpc } from "@/lib/rpc";
 
 export const metadata: Metadata = { title: "Cases · FinRecon AI" };
 
 const PAGE_SIZE = 25;
-const STATUSES: CaseStatus[] = ["new", "investigating", "awaiting_evidence", "awaiting_approval", "approved",
-  "rejected", "resolved", "closed"];
-const PRIORITIES: Severity[] = ["critical", "high", "medium", "low"];
+// Filters use the API's own values in the URL (?status=awaiting_approval).
+const STATUSES = ["new", "investigating", "awaiting_evidence", "awaiting_approval", "approved", "rejected", "resolved",
+  "closed"];
+const PRIORITIES = ["critical", "high", "medium", "low"];
 
-type Filters = { status?: CaseStatus; priority?: Severity; mine: boolean; page: number };
+type Filters = { status?: string; priority?: string; mine: boolean; page: number };
 
 function parse(params: Record<string, string | string[] | undefined>): Filters {
   const one = (key: string) => (typeof params[key] === "string" ? (params[key] as string) : undefined);
@@ -26,8 +28,8 @@ function parse(params: Record<string, string | string[] | undefined>): Filters {
   const priority = one("priority");
   const page = Number.parseInt(one("page") ?? "1", 10);
   return {
-    status: STATUSES.includes(status as CaseStatus) ? (status as CaseStatus) : undefined,
-    priority: PRIORITIES.includes(priority as Severity) ? (priority as Severity) : undefined,
+    status: status && STATUSES.includes(status) ? status : undefined,
+    priority: priority && PRIORITIES.includes(priority) ? priority : undefined,
     mine: one("mine") === "1",
     page: Number.isFinite(page) && page > 0 ? page : 1,
   };
@@ -50,19 +52,16 @@ export default function CasesPage({ searchParams }: PageProps<"/cases">) {
 async function CaseList({ searchParams }: { searchParams: PageProps<"/cases">["searchParams"] }) {
   const filters = parse(await searchParams);
   const user = await getCurrentUser();
-  const client = await api();
-  const [page, users] = await Promise.all([
-    client.GET("/cases", {
-      params: {
-        query: {
-          status: filters.status, priority: filters.priority, limit: PAGE_SIZE,
-          offset: (filters.page - 1) * PAGE_SIZE, assigned_to: filters.mine ? user.user_id : undefined,
-        },
-      },
-    }).then(unwrap),
-    client.GET("/users").then(unwrap),
+  const client = await rpc();
+  const [page, { users }] = await Promise.all([
+    client.cases.listCases({
+      status: enumFrom<CaseStatus>(CaseStatusSchema, filters.status),
+      priority: enumFrom<Severity>(SeveritySchema, filters.priority),
+      limit: PAGE_SIZE, offset: (filters.page - 1) * PAGE_SIZE, assignedTo: filters.mine ? user.userId : undefined,
+    }),
+    client.identity.listUsers({}),
   ]);
-  const names = new Map(users.map((u) => [u.id, u.full_name]));
+  const names = new Map(users.map((u) => [u.id, u.fullName]));
   const pages = Math.max(1, Math.ceil(page.total / PAGE_SIZE));
 
   return (
@@ -105,16 +104,16 @@ async function CaseList({ searchParams }: { searchParams: PageProps<"/cases">["s
             {page.items.map((c) => (
               <TableRow key={c.id}>
                 <TableCell className="font-medium">
-                  <Link href={`/cases/${c.id}`} className="underline-offset-4 hover:underline">{c.case_number}</Link>
+                  <Link href={`/cases/${c.id}`} className="underline-offset-4 hover:underline">{c.caseNumber}</Link>
                 </TableCell>
                 <TableCell className="max-w-md truncate" title={c.title}>{c.title}</TableCell>
                 <TableCell><StatusBadge status={c.status} /></TableCell>
                 <TableCell><PriorityBadge priority={c.priority} /></TableCell>
-                <TableCell className="text-right tabular-nums">{formatMoney(c.discrepancy_amount, c.currency)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatMoney(c.discrepancyAmount, c.currency)}</TableCell>
                 <TableCell className="text-muted-foreground">
-                  {c.assigned_to ? names.get(c.assigned_to) ?? "Unknown user" : "Unassigned"}
+                  {c.assignedTo ? names.get(c.assignedTo) ?? "Unknown user" : "Unassigned"}
                 </TableCell>
-                <TableCell className="text-muted-foreground">{formatDate(c.created_at)}</TableCell>
+                <TableCell className="text-muted-foreground">{formatDate(c.createdAt)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

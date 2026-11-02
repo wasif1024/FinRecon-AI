@@ -10,15 +10,18 @@ dependencies = [
     "alembic>=1.20.1",
     "anthropic>=2.3.0",
     "argon2-cffi>=25.1.0",
+    "connect-python>=0.9.0",
     "deepagents>=0.7.32",
     "fastapi>=0.162.0",
     "fastembed>=0.9.1",
     "fpdf2>=2.9.0",
+    "hypercorn>=0.18.0",
     "langchain>=1.4.7",
     "langchain-anthropic>=1.7.7",
     "langgraph>=1.2.19",
     "langgraph-checkpoint-postgres>=3.2.0",
     "langsmith>=0.14.16",
+    "protobuf>=6.33,<7",
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.16.2",
     "pyjwt>=2.15.1",
@@ -28,7 +31,6 @@ dependencies = [
     "pyyaml>=6.0.3",
     "qdrant-client>=1.20.0",
     "sqlalchemy>=2.0",
-    "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
@@ -38,10 +40,16 @@ finrecon = "finrecon_ai.cli:main"
 requires = ["uv_build>=0.12.18,<0.13.0"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+# finrecon is the code generated from proto/ (scripts/gen-rpc.sh).
+module-name = ["finrecon_ai", "finrecon"]
+
 [dependency-groups]
 dev = [
+    "grpcio-tools>=1.81",
     "httpx2>=2.16.0",
     "langgraph-cli[inmem]>=0.4.40",
+    "protoc-gen-connect-python>=0.9.0",
     "pytest>=9.2.0",
     "ruff>=0.15",
 ]
@@ -58,6 +66,7 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 120
+extend-exclude = ["src/finrecon"]  # generated from proto/
 
 [tool.ruff.lint]
 # The CI gate: real errors (unused or undefined names, redefinitions, ...). Tests import pytest fixtures from other

@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package finrecon.v1;
+
+import "finrecon/v1/cases.proto";
+import "finrecon/v1/enums.proto";
+
+// The human approval step. An agent workflow pauses with an approval request; a manager other than the
+// one who started the investigation decides it, and the workflow resumes in the background.
+service ApprovalService {
+  // Requests the caller may decide.
+  rpc ListPendingApprovals(ListPendingApprovalsRequest) returns (ListPendingApprovalsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Records the decision durably, then resumes the paused workflow in the background (poll the case's
+  // workflow). PERMISSION_DENIED for the manager who started the investigation.
+  rpc DecideApproval(DecideApprovalRequest) returns (DecideApprovalResponse);
+}
+
+message PendingApproval {
+  ApprovalRequest request = 1;
+  string case_number = 2;
+  string case_title = 3;
+  Recommendation recommendation = 4;
+}
+
+message ListPendingApprovalsRequest {}
+
+message ListPendingApprovalsResponse {
+  repeated PendingApproval approvals = 1;
+}
+
+// The evidence the reviewer considered. Leave it unset to record all of the case's evidence.
+message EvidenceSelection {
+  repeated string evidence_ids = 1;
+}
+
+message DecideApprovalRequest {
+  string request_id = 1;
+  ApprovalDecisionType decision = 2;
+  optional string comment = 3; // up to 5000 characters
+  EvidenceSelection evidence_considered = 4;
+}
+
+message DecideApprovalResponse {
+  Decision decision = 1;
+}

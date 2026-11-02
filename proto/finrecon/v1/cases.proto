@@ -1,0 +1,284 @@
+syntax = "proto3";
+
+package finrecon.v1;
+
+import "finrecon/v1/enums.proto";
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// Investigation cases: reading them, working them, and the agent workflow that investigates them.
+// The same permission-checked code as the REST API (/cases) runs behind every call.
+//
+// Conventions: ids are UUID strings; money and confidence are decimal strings ("12.50") so nothing is
+// rounded; dates are "YYYY-MM-DD"; free-form JSON recorded by the system (exception details, raw payloads,
+// agent source references) is a google.protobuf.Struct. Errors use Connect codes: UNAUTHENTICATED,
+// PERMISSION_DENIED, NOT_FOUND, FAILED_PRECONDITION (the case is not in a state that allows it) and
+// INVALID_ARGUMENT.
+service CaseService {
+  rpc ListCases(ListCasesRequest) returns (ListCasesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // The case with its exception, transactions, matches, findings, evidence, recommendations, approvals and
+  // what the caller may do next.
+  rpc GetCase(GetCaseRequest) returns (GetCaseResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc AssignCase(AssignCaseRequest) returns (AssignCaseResponse);
+  rpc TransitionCase(TransitionCaseRequest) returns (TransitionCaseResponse);
+  rpc AddNote(AddNoteRequest) returns (AddNoteResponse);
+  // Starts the agent workflow in the background (about a minute) and returns at once; poll GetWorkflow.
+  rpc StartInvestigation(StartInvestigationRequest) returns (StartInvestigationResponse);
+  rpc GetWorkflow(GetWorkflowRequest) returns (GetWorkflowResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Everything that happened to the case, including events recorded against its recommendations,
+  // approval requests and agent runs. Needs the audit permission.
+  rpc ListCaseAudit(ListCaseAuditRequest) returns (ListCaseAuditResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+message CaseSummary {
+  string id = 1;
+  string case_number = 2;
+  string title = 3;
+  CaseStatus status = 4;
+  Severity priority = 5;
+  optional string discrepancy_amount = 6;
+  optional string currency = 7;
+  optional string assigned_to = 8;
+  google.protobuf.Timestamp created_at = 9;
+}
+
+message ReconciliationException {
+  string id = 1;
+  ExceptionCategory category = 2;
+  Severity severity = 3;
+  optional string rule_code = 4;
+  google.protobuf.Struct details = 5;
+}
+
+message Transaction {
+  string id = 1;
+  SourceType source_type = 2;
+  optional string source_transaction_id = 3;
+  optional string external_reference = 4;
+  string transaction_date = 5;
+  optional string settlement_date = 6;
+  string amount = 7;
+  optional string fee_amount = 8;
+  string currency = 9;
+  Direction direction = 10;
+  optional string counterparty = 11;
+  optional string merchant = 12;
+  optional string description = 13;
+  google.protobuf.Struct raw_payload = 14;
+}
+
+message Match {
+  string id = 1;
+  string classification = 2;
+  string strategy = 3;
+  string score = 4;
+  google.protobuf.Struct explanation = 5;
+}
+
+message Evidence {
+  string id = 1;
+  EvidenceType evidence_type = 2;
+  optional string transaction_id = 3;
+  optional string policy_document_id = 4;
+  optional string related_case_id = 5;
+  google.protobuf.Struct source_reference = 6;
+  optional string excerpt = 7;
+  optional string agent_execution_id = 8;
+  optional string collected_by_user_id = 9;
+}
+
+message Finding {
+  string id = 1;
+  FindingType finding_type = 2;
+  string statement = 3;
+  optional string confidence = 4;
+  repeated string evidence_ids = 5;
+  optional string agent_execution_id = 6;
+  // The agent that recorded it, or "analyst".
+  optional string recorded_by = 7;
+}
+
+message Recommendation {
+  string id = 1;
+  int32 version = 2;
+  ResolutionType resolution_type = 3;
+  RecommendationStatus status = 4;
+  string summary = 5;
+  string rationale = 6;
+  google.protobuf.Struct proposed_action = 7;
+  optional string confidence = 8;
+  google.protobuf.Struct execution_result = 9;
+  google.protobuf.Timestamp executed_at = 10;
+}
+
+message Decision {
+  string id = 1;
+  string approval_request_id = 2;
+  string reviewer_id = 3;
+  ApprovalDecisionType decision = 4;
+  optional string comments = 5;
+  google.protobuf.Timestamp decided_at = 6;
+}
+
+message ApprovalRequest {
+  string id = 1;
+  string case_id = 2;
+  string recommendation_id = 3;
+  ApprovalRequestStatus status = 4;
+  optional string requested_by_user_id = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message TransitionOption {
+  CaseStatus to_status = 1;
+  bool requires_comment = 2;
+  repeated ClosureReason closure_reasons = 3;
+}
+
+// What the caller may do on the case now: a UI hint computed from the same rules the server enforces.
+message CaseActions {
+  bool can_assign = 1;
+  bool can_add_note = 2;
+  bool can_investigate = 3;
+  repeated TransitionOption transitions = 4;
+  optional string pending_approval_request_id = 5;
+  bool can_decide = 6;
+  optional string decide_blocked_reason = 7;
+}
+
+message CaseDetail {
+  // The summary fields, as in CaseSummary.
+  string id = 1;
+  string case_number = 2;
+  string title = 3;
+  CaseStatus status = 4;
+  Severity priority = 5;
+  optional string discrepancy_amount = 6;
+  optional string currency = 7;
+  optional string assigned_to = 8;
+  google.protobuf.Timestamp created_at = 9;
+
+  ClosureReason closure_reason = 10;
+  google.protobuf.Timestamp resolved_at = 11;
+  google.protobuf.Timestamp closed_at = 12;
+  ReconciliationException exception = 13;
+  repeated Transaction transactions = 14;
+  repeated Match matches = 15;
+  repeated Finding findings = 16;
+  repeated Evidence evidence = 17;
+  repeated Recommendation recommendations = 18;
+  repeated ApprovalRequest approval_requests = 19;
+  repeated Decision decisions = 20;
+  CaseActions actions = 21;
+}
+
+// Where a case's agent workflow stands.
+message Workflow {
+  string case_id = 1;
+  bool started = 2;
+  bool paused_for_approval = 3;
+  bool running = 4;
+  optional int32 round = 5;
+  optional string approval_request_id = 6;
+  optional string recommendation_id = 7;
+  optional string error = 8;
+  // Agent output the server refused to record (ungrounded claims, invalid ids ...).
+  repeated string rejected_output = 9;
+  google.protobuf.Struct execution_result = 10;
+}
+
+message AuditEvent {
+  int64 id = 1 [jstype = JS_STRING];
+  google.protobuf.Timestamp occurred_at = 2;
+  string event_type = 3;
+  string actor_type = 4;
+  optional string actor_user_id = 5;
+  optional string agent_execution_id = 6;
+  string entity_type = 7;
+  optional string entity_id = 8;
+  google.protobuf.Struct payload = 9;
+  optional string request_id = 10;
+  string hash = 11;
+}
+
+message ListCasesRequest {
+  CaseStatus status = 1; // UNSPECIFIED: any status
+  Severity priority = 2; // UNSPECIFIED: any priority
+  optional string assigned_to = 3;
+  int32 limit = 4; // 1..200; 0 means 50
+  int32 offset = 5;
+}
+
+message ListCasesResponse {
+  int32 total = 1;
+  repeated CaseSummary items = 2;
+}
+
+message GetCaseRequest {
+  string case_id = 1;
+}
+
+message GetCaseResponse {
+  CaseDetail detail = 1;
+}
+
+message AssignCaseRequest {
+  string case_id = 1;
+  string assignee_id = 2;
+}
+
+message AssignCaseResponse {
+  CaseSummary summary = 1;
+}
+
+message TransitionCaseRequest {
+  string case_id = 1;
+  CaseStatus to_status = 2;
+  optional string comment = 3;
+  ClosureReason closure_reason = 4; // required when closing
+}
+
+message TransitionCaseResponse {
+  CaseSummary summary = 1;
+}
+
+message AddNoteRequest {
+  string case_id = 1;
+  string text = 2; // 1..5000 characters
+}
+
+message AddNoteResponse {
+  Evidence evidence = 1;
+}
+
+message StartInvestigationRequest {
+  string case_id = 1;
+}
+
+message StartInvestigationResponse {
+  Workflow workflow = 1;
+}
+
+message GetWorkflowRequest {
+  string case_id = 1;
+}
+
+message GetWorkflowResponse {
+  Workflow workflow = 1;
+}
+
+message ListCaseAuditRequest {
+  string case_id = 1;
+}
+
+message ListCaseAuditResponse {
+  repeated AuditEvent events = 1;
+}

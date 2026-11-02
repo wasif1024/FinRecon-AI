@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package finrecon.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Sign-in and who is who in the caller's tenant. Every other call sends the access token from Login as
+// "Authorization: Bearer <token>"; roles are reloaded from the database on every call.
+service IdentityService {
+  // One error for unknown tenant, unknown user, inactive user and wrong password (UNAUTHENTICATED);
+  // RESOURCE_EXHAUSTED after repeated failures.
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc GetMe(GetMeRequest) returns (GetMeResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Active colleagues in the caller's tenant, for display and assignment. Never credentials.
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+message LoginRequest {
+  string tenant = 1; // tenant slug, e.g. demo
+  string email = 2;
+  string password = 3;
+}
+
+message LoginResponse {
+  string access_token = 1;
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+message GetMeRequest {}
+
+message GetMeResponse {
+  string user_id = 1;
+  string tenant_id = 2;
+  string email = 3;
+  string full_name = 4;
+  repeated string roles = 5;
+  repeated string permissions = 6;
+}
+
+message ListUsersRequest {}
+
+message ListUsersResponse {
+  repeated User users = 1;
+}
+
+message User {
+  string id = 1;
+  string email = 2;
+  string full_name = 3;
+  repeated string roles = 4;
+}

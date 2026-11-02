@@ -169,6 +169,15 @@ importers:
       '@base-ui/react':
         specifier: ^1.9.0
         version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@bufbuild/protobuf':
+        specifier: 2.16.0
+        version: 2.16.0
+      '@connectrpc/connect':
+        specifier: 2.3.0
+        version: 2.3.0(@bufbuild/protobuf@2.16.0)
+      '@connectrpc/connect-node':
+        specifier: 2.3.0
+        version: 2.3.0(@bufbuild/protobuf@2.16.0)(@connectrpc/connect@2.3.0(@bufbuild/protobuf@2.16.0))
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -206,6 +215,12 @@ importers:
         specifier: ^1.4.0
         version: 1.4.0
     devDependencies:
+      '@bufbuild/buf':
+        specifier: 1.75.0
+        version: 1.75.0
+      '@bufbuild/protoc-gen-es':
+        specifier: 2.16.0
+        version: 2.16.0(@bufbuild/protobuf@2.16.0)(supports-color@10.2.2)
       '@playwright/test':
         specifier: 1.64.1
         version: 1.64.1
@@ -401,6 +416,81 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  '@bufbuild/buf-darwin-arm64@1.75.0':
+    resolution: {integrity: sha512-QiQYSmtVUcKy9DK/d+zJ3+D4iUQmmiDQ3i8/yBr8cf7Nr28lqKMAIKznJE/uGRsjr90fHaUQO+Xsedec0ArN5g==}
+    engines: {node: '>=12'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@bufbuild/buf-darwin-x64@1.75.0':
+    resolution: {integrity: sha512-U2W+MRE9jJ7Am7x02ZWt87U5lfPrjKMdB1aZDslsuyOHo+fEUvZolupmhoW30v6syNAWBOfkoi0k5TLc2FNGqQ==}
+    engines: {node: '>=12'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@bufbuild/buf-linux-aarch64@1.75.0':
+    resolution: {integrity: sha512-eX+XyokzJDqsNIFo8b1O3DBvbnksOozPJX4QVsNn61JqSUtWspyTNeYqwg8lRDancML+bDqZEDFPABjAsVCQGQ==}
+    engines: {node: '>=12'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@bufbuild/buf-linux-armv7@1.75.0':
+    resolution: {integrity: sha512-2RVhmr3vJ145DazYTk9dWAzeQPtcJ0SiSzY02v1Su/JIfgzhv9lgOm+y3nGuLjyZFF8UfTtmuHfHso5zDBgsCQ==}
+    engines: {node: '>=12'}
+    cpu: [arm]
+    os: [linux]
+
+  '@bufbuild/buf-linux-x64@1.75.0':
+    resolution: {integrity: sha512-YGGJAx0lpMCE7aMWjNOJcfoEaG/e+iYHnTC4SZ0P5eS4IffMryA9Z4/bb1m1wNXAEJ8ATFMEZOAk/5x9VE47ig==}
+    engines: {node: '>=12'}
+    cpu: [x64]
+    os: [linux]
+
+  '@bufbuild/buf-win32-arm64@1.75.0':
+    resolution: {integrity: sha512-iRge6Ntta41gt0i7P8/EZFDWe3uLNnCEN86r1tKTWctumWxPET3UJcSzzYPyL4gxvzu1/1VTu+AB3+MYAqHy6Q==}
+    engines: {node: '>=12'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@bufbuild/buf-win32-x64@1.75.0':
+    resolution: {integrity: sha512-/BgLt3VWndocuG4lbMdlBc1i41I+Bap4zm8R1Cnmov6DtoAQp4dy/leRrvT4aDArIUQ1o7W/Y92xTRITedU4ww==}
+    engines: {node: '>=12'}
+    cpu: [x64]
+    os: [win32]
+
+  '@bufbuild/buf@1.75.0':
+    resolution: {integrity: sha512-uMuBCULLDax9/3d5Lo9mea38vuPDv4mrRVE4XfSq3qPcD5UUxlg0RJ9hm84lYCzI3A3lIvLeChxrw9c1RUiD2w==}
+    engines: {node: '>=12'}
+    hasBin: true
+
+  '@bufbuild/protobuf@2.16.0':
+    resolution: {integrity: sha512-FWa0sPlqYGJgpTs6OxBRcL/AW4JT0OIO+W1ajerluoTVh8CV0B7XM1qsNCRgnkSCkRCgOICKHRQlY17jrsm0+Q==}
+
+  '@bufbuild/protoc-gen-es@2.16.0':
+    resolution: {integrity: sha512-LbPrEaGd7bOxKbJHllTR5439+PZjqd6fM7xyDZkDVtZ+Efzr7TMdMqShG9Qkf/nYVyiNS/SK5r9JhRaBTFkfZw==}
+    engines: {node: '>=22'}
+    hasBin: true
+    peerDependencies:
+      '@bufbuild/protobuf': 2.16.0
+    peerDependenciesMeta:
+      '@bufbuild/protobuf':
+        optional: true
+
+  '@bufbuild/protoplugin@2.16.0':
+    resolution: {integrity: sha512-3FdYJys34VhFnBQsjiV9wurBkX/DBACQAkAk+nCKdO1p8ROVNi7gmaRAcba+4qq8hQq8rYVukuutwvGCvd4kJA==}
+
+  '@connectrpc/connect-node@2.3.0':
+    resolution: {integrity: sha512-kcQgV4GqFIESsl0MOHInC9/wNYU4aJDvG1OfGR5Lq6/l0gqycSGqEk+fixXGcUtPLc8vJBgS4V1nTmWlh4o9gw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
+      '@connectrpc/connect': 2.3.0
+
+  '@connectrpc/connect@2.3.0':
+    resolution: {integrity: sha512-rjAn8L9KbAZrkwiB8m1qzDsLs74hkYmwwM2iSWuxTPVOTRm/EZw31smKbQqPU50AXqJC5eKKpEnA6Uf/swQOgQ==}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
 
   '@dotenvx/dotenvx@1.75.1':
     resolution: {integrity: sha512-/BITOC9dmS/edY2zQwZNicQ059O6RKabtQfyEafV0nGtfYRNHYy1DIPiYVcov40+tob9hfmBnbR963dS+EQ1DQ==}
@@ -959,6 +1049,11 @@ packages:
   '@typescript-eslint/visitor-keys@8.72.1':
     resolution: {integrity: sha512-SB8xqipSzZHUePCCLNeYxqnxq83X61/qzNhjQGbTfjxGZIeOEP7tBgWYX05Tcd6CgE02WdTJnh5b8kMZJ/+bnQ==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@typescript/vfs@1.6.5':
+    resolution: {integrity: sha512-gobLHQLmvQGJInFk31NvgMd1uYzRXsd8qgnOssyLD055R2QPnw1ubRbBQ4+T+5qC7IQVuYXdvNDE2G7tMDVHgw==}
+    peerDependencies:
+      typescript: '*'
 
   '@unrs/resolver-binding-android-arm-eabi@1.13.0':
     resolution: {integrity: sha512-60E5mvmIiW+i1E/HYeSX4iE4A8s9NJSGYPu7UM0DJght1c2tTkWwuyDyAwzsEXhKM/XbbndfnTiXdfrf27d2hw==}
@@ -2839,6 +2934,11 @@ packages:
       eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
       typescript: '>=4.8.4 <6.1.0'
 
+  typescript@5.4.5:
+    resolution: {integrity: sha512-vcI4UpRgg81oIRUFwR0WSIHKt11nJ7SAVlYNIu+QpqeyXP+gpQJy/Z4+F0aGxSE4MqwjyXvW/TzgkLAx2AGHwQ==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
@@ -3169,6 +3269,64 @@ snapshots:
       use-sync-external-store: 1.7.0(react@19.3.0)
     optionalDependencies:
       '@types/react': 19.3.0
+
+  '@bufbuild/buf-darwin-arm64@1.75.0':
+    optional: true
+
+  '@bufbuild/buf-darwin-x64@1.75.0':
+    optional: true
+
+  '@bufbuild/buf-linux-aarch64@1.75.0':
+    optional: true
+
+  '@bufbuild/buf-linux-armv7@1.75.0':
+    optional: true
+
+  '@bufbuild/buf-linux-x64@1.75.0':
+    optional: true
+
+  '@bufbuild/buf-win32-arm64@1.75.0':
+    optional: true
+
+  '@bufbuild/buf-win32-x64@1.75.0':
+    optional: true
+
+  '@bufbuild/buf@1.75.0':
+    optionalDependencies:
+      '@bufbuild/buf-darwin-arm64': 1.75.0
+      '@bufbuild/buf-darwin-x64': 1.75.0
+      '@bufbuild/buf-linux-aarch64': 1.75.0
+      '@bufbuild/buf-linux-armv7': 1.75.0
+      '@bufbuild/buf-linux-x64': 1.75.0
+      '@bufbuild/buf-win32-arm64': 1.75.0
+      '@bufbuild/buf-win32-x64': 1.75.0
+
+  '@bufbuild/protobuf@2.16.0': {}
+
+  '@bufbuild/protoc-gen-es@2.16.0(@bufbuild/protobuf@2.16.0)(supports-color@10.2.2)':
+    dependencies:
+      '@bufbuild/protoplugin': 2.16.0(supports-color@10.2.2)
+    optionalDependencies:
+      '@bufbuild/protobuf': 2.16.0
+    transitivePeerDependencies:
+      - supports-color
+
+  '@bufbuild/protoplugin@2.16.0(supports-color@10.2.2)':
+    dependencies:
+      '@bufbuild/protobuf': 2.16.0
+      '@typescript/vfs': 1.6.5(supports-color@10.2.2)(typescript@5.4.5)
+      typescript: 5.4.5
+    transitivePeerDependencies:
+      - supports-color
+
+  '@connectrpc/connect-node@2.3.0(@bufbuild/protobuf@2.16.0)(@connectrpc/connect@2.3.0(@bufbuild/protobuf@2.16.0))':
+    dependencies:
+      '@bufbuild/protobuf': 2.16.0
+      '@connectrpc/connect': 2.3.0(@bufbuild/protobuf@2.16.0)
+
+  '@connectrpc/connect@2.3.0(@bufbuild/protobuf@2.16.0)':
+    dependencies:
+      '@bufbuild/protobuf': 2.16.0
 
   '@dotenvx/dotenvx@1.75.1':
     dependencies:
@@ -3711,6 +3869,13 @@ snapshots:
     dependencies:
       '@typescript-eslint/types': 8.72.1
       eslint-visitor-keys: 5.0.1
+
+  '@typescript/vfs@1.6.5(supports-color@10.2.2)(typescript@5.4.5)':
+    dependencies:
+      debug: 4.4.3(supports-color@10.2.2)
+      typescript: 5.4.5
+    transitivePeerDependencies:
+      - supports-color
 
   '@unrs/resolver-binding-android-arm-eabi@1.13.0':
     optional: true
@@ -5733,6 +5898,8 @@ snapshots:
       typescript: 5.9.3
     transitivePeerDependencies:
       - supports-color
+
+  typescript@5.4.5: {}
 
   typescript@5.9.3: {}
 

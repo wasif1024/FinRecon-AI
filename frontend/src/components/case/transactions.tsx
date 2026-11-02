@@ -2,7 +2,8 @@ import { Check, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatDate, formatMoney, humanize } from "@/lib/format";
+import { Direction, SourceTypeSchema } from "@/gen/finrecon/v1/enums_pb";
+import { enumLabel, formatDate, formatMoney, humanize } from "@/lib/format";
 import type { Match, Transaction } from "./types";
 
 export function Transactions({ transactions }: { transactions: Transaction[] }) {
@@ -24,14 +25,14 @@ export function Transactions({ transactions }: { transactions: Transaction[] }) 
           <TableBody>
             {transactions.map((t) => (
               <TableRow key={t.id}>
-                <TableCell>{humanize(t.source_type)}</TableCell>
-                <TableCell className="font-mono text-xs">{t.source_transaction_id ?? "—"}</TableCell>
-                <TableCell className="font-mono text-xs">{t.external_reference ?? "—"}</TableCell>
-                <TableCell>{formatDate(t.transaction_date)}</TableCell>
+                <TableCell>{enumLabel(SourceTypeSchema, t.sourceType)}</TableCell>
+                <TableCell className="font-mono text-xs">{t.sourceTransactionId ?? "—"}</TableCell>
+                <TableCell className="font-mono text-xs">{t.externalReference ?? "—"}</TableCell>
+                <TableCell>{formatDate(t.transactionDate)}</TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {t.direction === "debit" ? "−" : ""}{formatMoney(t.amount, t.currency)}
+                  {t.direction === Direction.DEBIT ? "−" : ""}{formatMoney(t.amount, t.currency)}
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{formatMoney(t.fee_amount)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatMoney(t.feeAmount)}</TableCell>
                 <TableCell className="max-w-48 truncate" title={t.counterparty ?? ""}>{t.counterparty ?? t.merchant ?? "—"}</TableCell>
               </TableRow>
             ))}
@@ -41,9 +42,9 @@ export function Transactions({ transactions }: { transactions: Transaction[] }) 
       {transactions.map((t) => (
         <details key={t.id} className="rounded-md border px-3 py-2 text-sm">
           <summary className="cursor-pointer text-muted-foreground">
-            Original record for {t.source_transaction_id ?? t.id} (as imported, untrusted)
+            Original record for {t.sourceTransactionId ?? t.id} (as imported, untrusted)
           </summary>
-          <pre className="mt-2 overflow-x-auto rounded bg-muted p-3 text-xs">{JSON.stringify(t.raw_payload, null, 2)}</pre>
+          <pre className="mt-2 overflow-x-auto rounded bg-muted p-3 text-xs">{JSON.stringify(t.rawPayload ?? {}, null, 2)}</pre>
         </details>
       ))}
     </div>
@@ -62,7 +63,7 @@ export function MatchExplanations({ matches }: { matches: Match[] }) {
   return (
     <div className="space-y-4">
       {matches.map((m) => {
-        const explanation = m.explanation as { leg?: string; summary?: string; rules?: Rule[] };
+        const explanation = (m.explanation ?? {}) as { leg?: string; summary?: string; rules?: Rule[] };
         return (
           <div key={m.id} className="rounded-lg border">
             <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-sm">

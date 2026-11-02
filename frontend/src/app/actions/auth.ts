@@ -2,7 +2,10 @@
 
 import { redirect } from "next/navigation";
 
-import { api } from "@/lib/api/client";
+import { timestampDate } from "@bufbuild/protobuf/wkt";
+
+import { ApiError } from "@/lib/api/client";
+import { rpc } from "@/lib/rpc";
 import { clearToken, setToken } from "@/lib/session";
 
 export type LoginState = { error?: string; tenant?: string; email?: string };
@@ -13,13 +16,17 @@ export async function login(_previous: LoginState, form: FormData): Promise<Logi
   const password = String(form.get("password") ?? "");
   if (!tenant || !email || !password) return { error: "Enter your organisation, email and password.", tenant, email };
 
-  const { data, response } = await (await api()).POST("/auth/login", { body: { tenant, email, password } });
-  if (response.status === 429) {
-    return { error: "Too many failed attempts. Try again in 15 minutes.", tenant, email };
+  let session;
+  try {
+    session = await (await rpc()).identity.login({ tenant, email, password });
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (error.status === 429) return { error: "Too many failed attempts. Try again in 15 minutes.", tenant, email };
+    return { error: "Those details didn't match an account.", tenant, email };
   }
-  if (!response.ok || !data) return { error: "Those details didn't match an account.", tenant, email };
+  if (!session.expiresAt) return { error: "Sign-in failed. Try again.", tenant, email };
 
-  await setToken(data.access_token, new Date(data.expires_at));
+  await setToken(session.accessToken, timestampDate(session.expiresAt));
   redirect(safeNext(form.get("next")));
 }
 

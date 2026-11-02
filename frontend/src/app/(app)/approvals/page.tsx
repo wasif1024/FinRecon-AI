@@ -5,9 +5,11 @@ import { Suspense } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ApiError, api, unwrap } from "@/lib/api/client";
+import { ResolutionTypeSchema } from "@/gen/finrecon/v1/enums_pb";
+import { ApiError } from "@/lib/api/client";
 import { getCurrentUser } from "@/lib/dal";
-import { formatDateTime, formatMoney, humanize } from "@/lib/format";
+import { enumLabel, formatDateTime, formatMoney } from "@/lib/format";
+import { rpc } from "@/lib/rpc";
 
 export const metadata: Metadata = { title: "Approvals · FinRecon AI" };
 
@@ -29,45 +31,46 @@ export default function ApprovalsPage() {
 
 async function Queue() {
   const user = await getCurrentUser();
-  const client = await api();
+  const client = await rpc();
   let pending;
   try {
-    pending = unwrap(await client.GET("/approvals"));
+    pending = (await client.approvals.listPendingApprovals({})).approvals;
   } catch (error) {
     if (error instanceof ApiError && error.status === 403) {
       return <p className="text-sm text-muted-foreground">Only managers decide recommendations.</p>;
     }
     throw error;
   }
-  const users = unwrap(await client.GET("/users"));
-  const names = new Map(users.map((u) => [u.id, u.full_name]));
+  const { users } = await client.identity.listUsers({});
+  const names = new Map(users.map((u) => [u.id, u.fullName]));
 
   if (pending.length === 0) {
     return <p className="rounded-lg border p-8 text-center text-sm text-muted-foreground">Nothing is waiting for approval.</p>;
   }
   return (
     <ul className="space-y-3">
-      {pending.map(({ request, case_number, case_title, recommendation }) => {
-        const action = recommendation.proposed_action as { amount?: string | null; currency?: string | null };
-        const own = request.requested_by_user_id === user.user_id;
+      {pending.map(({ request, caseNumber, caseTitle, recommendation }) => {
+        if (!request || !recommendation) return null;
+        const action = (recommendation.proposedAction ?? {}) as { amount?: string | null; currency?: string | null };
+        const own = request.requestedByUserId === user.userId;
         return (
           <li key={request.id}>
             <Card>
               <CardHeader>
                 <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                  <Link href={`/cases/${request.case_id}`} className="underline-offset-4 hover:underline">
-                    <h2>{case_number}</h2>
+                  <Link href={`/cases/${request.caseId}`} className="underline-offset-4 hover:underline">
+                    <h2>{caseNumber}</h2>
                   </Link>
-                  <Badge variant="secondary">{humanize(recommendation.resolution_type)}</Badge>
+                  <Badge variant="secondary">{enumLabel(ResolutionTypeSchema, recommendation.resolutionType)}</Badge>
                   <span className="ml-auto text-sm font-normal tabular-nums">{formatMoney(action.amount, action.currency)}</span>
                 </CardTitle>
-                <CardDescription>{case_title}</CardDescription>
+                <CardDescription>{caseTitle}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <p>{recommendation.summary}</p>
                 <p className="text-xs text-muted-foreground">
-                  Requested by {request.requested_by_user_id ? names.get(request.requested_by_user_id) ?? "a user" : "the workflow"}
-                  {" "}· {formatDateTime(request.created_at)} · v{recommendation.version}
+                  Requested by {request.requestedByUserId ? names.get(request.requestedByUserId) ?? "a user" : "the workflow"}
+                  {" "}· {formatDateTime(request.createdAt)} · v{recommendation.version}
                   {own && " · you started this investigation, so another manager must decide it"}
                 </p>
               </CardContent>

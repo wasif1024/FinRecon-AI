@@ -6,16 +6,14 @@ import { addNote, assignCase, decide, transitionCase } from "@/app/actions/cases
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import type { components } from "@/lib/api/schema";
-import { humanize } from "@/lib/format";
+import { CaseStatusSchema, ClosureReasonSchema } from "@/gen/finrecon/v1/enums_pb";
+import { enumLabel, enumValue } from "@/lib/format";
+import type { TransitionOption, User } from "../types";
 import { useActionToast } from "./use-action-toast";
-
-type TransitionOption = components["schemas"]["TransitionOption"];
-type User = components["schemas"]["UserOut"];
 
 const SELECT = "h-9 w-full rounded-md border bg-background px-2 text-sm shadow-xs focus-visible:ring-2 focus-visible:ring-ring";
 
-export function AssignForm({ caseId, users, assignedTo }: { caseId: string; users: User[]; assignedTo: string | null }) {
+export function AssignForm({ caseId, users, assignedTo }: { caseId: string; users: User[]; assignedTo?: string }) {
   const { formAction, pending } = useActionToast(assignCase);
   const workers = users.filter((u) => u.roles.some((r) => r === "analyst" || r === "manager"));
   return (
@@ -25,7 +23,7 @@ export function AssignForm({ caseId, users, assignedTo }: { caseId: string; user
       <div className="flex gap-2">
         <select id="assignee_id" name="assignee_id" defaultValue={assignedTo ?? ""} className={SELECT}>
           <option value="" disabled>Choose a colleague</option>
-          {workers.map((u) => <option key={u.id} value={u.id}>{u.full_name} ({u.roles.join(", ")})</option>)}
+          {workers.map((u) => <option key={u.id} value={u.id}>{u.fullName} ({u.roles.join(", ")})</option>)}
         </select>
         <Button type="submit" variant="secondary" disabled={pending}>Assign</Button>
       </div>
@@ -34,27 +32,31 @@ export function AssignForm({ caseId, users, assignedTo }: { caseId: string; user
 }
 
 export function StatusForm({ caseId, transitions }: { caseId: string; transitions: TransitionOption[] }) {
-  const [target, setTarget] = useState<string>(transitions[0]?.to_status ?? "");
+  // Options carry the API's own values ("investigating"); the server action maps them back to the RPC enum.
+  const options = transitions.map((t) => ({ ...t, value: enumValue(CaseStatusSchema, t.toStatus) }));
+  const [target, setTarget] = useState<string>(options[0]?.value ?? "");
   const form = useRef<HTMLFormElement>(null);
   const { formAction, pending } = useActionToast(transitionCase, () => form.current?.reset());
-  const option = transitions.find((t) => t.to_status === target);
+  const option = options.find((t) => t.value === target);
   return (
     <form ref={form} action={formAction} className="space-y-2">
       <input type="hidden" name="case_id" value={caseId} />
       <Label htmlFor="to_status">Move case to</Label>
       <select id="to_status" name="to_status" value={target} onChange={(e) => setTarget(e.target.value)} className={SELECT}>
-        {transitions.map((t) => <option key={t.to_status} value={t.to_status}>{humanize(t.to_status)}</option>)}
+        {options.map((t) => <option key={t.value} value={t.value}>{enumLabel(CaseStatusSchema, t.toStatus)}</option>)}
       </select>
-      {option && option.closure_reasons.length > 0 && (
+      {option && option.closureReasons.length > 0 && (
         <>
           <Label htmlFor="closure_reason">Reason for closing</Label>
           <select id="closure_reason" name="closure_reason" required className={SELECT} defaultValue="">
             <option value="" disabled>Choose a reason</option>
-            {option.closure_reasons.map((r) => <option key={r} value={r}>{humanize(r)}</option>)}
+            {option.closureReasons.map((r) => (
+              <option key={r} value={enumValue(ClosureReasonSchema, r)}>{enumLabel(ClosureReasonSchema, r)}</option>
+            ))}
           </select>
         </>
       )}
-      {option?.requires_comment && (
+      {option?.requiresComment && (
         <>
           <Label htmlFor="status_comment">Comment (required)</Label>
           <Textarea id="status_comment" name="comment" required rows={2} />

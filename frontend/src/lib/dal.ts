@@ -3,11 +3,11 @@ import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
 
-import { api, unwrap } from "@/lib/api/client";
-import type { components } from "@/lib/api/schema";
+import type { GetMeResponse } from "@/gen/finrecon/v1/identity_pb";
+import { rpc } from "@/lib/rpc";
 import { getToken } from "@/lib/session";
 
-export type CurrentUser = components["schemas"]["MeOut"];
+export type CurrentUser = GetMeResponse;
 
 /**
  * Data Access Layer: the one place that establishes who is signed in. Asks the API, which reloads roles from the
@@ -15,7 +15,7 @@ export type CurrentUser = components["schemas"]["MeOut"];
  */
 export const getCurrentUser = cache(async (): Promise<CurrentUser> => {
   if (!(await getToken())) redirect("/login");
-  return unwrap(await (await api()).GET("/auth/me"));
+  return (await rpc()).identity.getMe({});
 });
 
 /** UI hint only: the API enforces every permission itself. */

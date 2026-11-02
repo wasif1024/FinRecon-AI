@@ -2,17 +2,17 @@
 
 import { refresh } from "next/cache";
 
-import { ApiError, api, unwrap } from "@/lib/api/client";
-import type { components } from "@/lib/api/schema";
+import {
+  ApprovalDecisionType, ApprovalDecisionTypeSchema, CaseStatus, CaseStatusSchema, ClosureReason, ClosureReasonSchema,
+} from "@/gen/finrecon/v1/enums_pb";
+import { ApiError } from "@/lib/api/client";
+import { enumFrom } from "@/lib/format";
+import { rpc } from "@/lib/rpc";
 
-// Every action re-authorises through the API (the session cookie travels with each call); nothing here trusts the
-// browser. On success the page is re-rendered with refresh(); on refusal the API's own message is returned.
+// Every action re-authorises through the API's RPC services (the session token travels with each call); nothing
+// here trusts the browser. On success the page is re-rendered with refresh(); on refusal the API's message returns.
 
 export type ActionResult = { ok?: string; error?: string };
-
-type CaseStatus = components["schemas"]["CaseStatus"];
-type ClosureReason = components["schemas"]["ClosureReason"];
-type Decision = components["schemas"]["ApprovalDecisionType"];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -41,24 +41,21 @@ export async function assignCase(_: ActionResult, form: FormData): Promise<Actio
   return run(async () => {
     const assignee = field(form, "assignee_id");
     if (!UUID.test(assignee)) throw new ApiError(422, "Choose someone to assign.");
-    unwrap(await (await api()).POST("/cases/{case_id}/assign", {
-      params: { path: { case_id: caseId(form) } }, body: { assignee_id: assignee },
-    }));
+    await (await rpc()).cases.assignCase({ caseId: caseId(form), assigneeId: assignee });
     return "Case assigned.";
   });
 }
 
 export async function transitionCase(_: ActionResult, form: FormData): Promise<ActionResult> {
   return run(async () => {
-    const reason = field(form, "closure_reason");
-    unwrap(await (await api()).POST("/cases/{case_id}/transition", {
-      params: { path: { case_id: caseId(form) } },
-      body: {
-        to_status: field(form, "to_status") as CaseStatus,
-        comment: field(form, "comment") || null,
-        closure_reason: (reason || null) as ClosureReason | null,
-      },
-    }));
+    const toStatus = enumFrom<CaseStatus>(CaseStatusSchema, field(form, "to_status"));
+    if (toStatus === undefined) throw new ApiError(422, "Choose a status.");
+    await (await rpc()).cases.transitionCase({
+      caseId: caseId(form),
+      toStatus,
+      comment: field(form, "comment") || undefined,
+      closureReason: enumFrom<ClosureReason>(ClosureReasonSchema, field(form, "closure_reason")),
+    });
     return "Case status updated.";
   });
 }
@@ -67,16 +64,14 @@ export async function addNote(_: ActionResult, form: FormData): Promise<ActionRe
   return run(async () => {
     const text = field(form, "text");
     if (!text) throw new ApiError(422, "Write a note first.");
-    unwrap(await (await api()).POST("/cases/{case_id}/notes", {
-      params: { path: { case_id: caseId(form) } }, body: { text },
-    }));
+    await (await rpc()).cases.addNote({ caseId: caseId(form), text });
     return "Note added.";
   });
 }
 
 export async function startInvestigation(_: ActionResult, form: FormData): Promise<ActionResult> {
   return run(async () => {
-    unwrap(await (await api()).POST("/cases/{case_id}/investigate", { params: { path: { case_id: caseId(form) } } }));
+    await (await rpc()).cases.startInvestigation({ caseId: caseId(form) });
     return "Investigation started. The agents usually take about a minute.";
   });
 }
@@ -85,11 +80,9 @@ export async function decide(_: ActionResult, form: FormData): Promise<ActionRes
   return run(async () => {
     const requestId = field(form, "request_id");
     if (!UUID.test(requestId)) throw new ApiError(400, "invalid approval request");
-    const decision = field(form, "decision") as Decision;
-    unwrap(await (await api()).POST("/approvals/{request_id}/decision", {
-      params: { path: { request_id: requestId } },
-      body: { decision, comment: field(form, "comment") || null },
-    }));
-    return decision === "approve" ? "Approved. The resolution is being carried out." : "Decision recorded.";
+    const decision = enumFrom<ApprovalDecisionType>(ApprovalDecisionTypeSchema, field(form, "decision"));
+    if (decision === undefined) throw new ApiError(422, "Choose a decision.");
+    await (await rpc()).approvals.decideApproval({ requestId, decision, comment: field(form, "comment") || undefined });
+    return decision === ApprovalDecisionType.APPROVE ? "Approved. The resolution is being carried out." : "Decision recorded.";
   });
 }
