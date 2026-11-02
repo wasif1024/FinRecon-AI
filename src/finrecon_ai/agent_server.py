@@ -47,12 +47,14 @@ log = get_logger(__name__)
 CASE_GRAPH_ID = "case-investigation"
 
 
-class StudioInput(TypedDict):
-    case_number: str
+class StudioInput(TypedDict, total=False):
+    case_number: str  # required
+    tenant_slug: str  # default STUDIO_TENANT_SLUG; evaluations name their eval-* tenant
 
 
 class StudioState(CaseState, total=False):
     case_number: str
+    tenant_slug: str
 
 
 def _require_development() -> None:
@@ -77,7 +79,7 @@ def _open_case(deps: WorkflowDeps, state: StudioState, config: dict) -> dict[str
     from finrecon_ai.coordinators import studio_actor
 
     with deps.unit_of_work() as session:
-        actor = studio_actor(session)
+        actor = studio_actor(session, state.get("tenant_slug"))
         case_id = session.scalar(select(InvestigationCase.id).where(
             InvestigationCase.tenant_id == actor.tenant_id, InvestigationCase.case_number == state.get("case_number")))
         if case_id is None:

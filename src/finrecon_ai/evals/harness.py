@@ -1,12 +1,16 @@
-"""Evaluation harness: an isolated tenant per experiment, one fresh case per planted scenario, the real workflow.
+"""Evaluation harness: isolated tenants, one fresh case per planted scenario, the real workflow.
 
-Cases are consumed by investigating them, so every experiment prepares its own `eval-<timestamp>` tenant from the
-same deterministic synthetic data (and its own copy of the sample policies). Row-level security keeps it apart from
-the demo tenant.
+Cases are consumed by investigating them, so each repetition of an experiment gets its own `eval-*` tenant from the
+same deterministic synthetic data (and its own copy of the sample policies); `CasePool` hands every run a fresh case.
+Row-level security keeps eval tenants apart from the demo tenant.
+
+Runs go through the LangGraph Agent Server (`case-investigation`), the way Studio runs them. Results and the
+trajectory (every tool call, subagents' included) are read back from the audited records, not from the stream.
 """
 
+import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -19,6 +23,7 @@ from finrecon_ai.agents.workspace import StateWorkspaces, Workspaces
 from finrecon_ai.authz import Actor, load_actor
 from finrecon_ai.cases.service import create_cases_for_run
 from finrecon_ai.cli import DEMO_SOURCES
+from finrecon_ai.config import get_settings
 from finrecon_ai.db.enums import EvidenceType, RoleName
 from finrecon_ai.db.models import (
     AgentExecutionRecord,
@@ -56,18 +61,37 @@ class EvalTenant:
     manager_id: uuid.UUID
     cases: dict[str, uuid.UUID]  # scenario -> case id
     manifest: dict[str, Any]
+    slug: str = ""
+    case_numbers: dict[str, str] = field(default_factory=dict)  # scenario -> case number
+
+
+class CasePool:
+    """A fresh case for every run: repetitions of a scenario take its case from successive tenants."""
+
+    def __init__(self, tenants: list[EvalTenant]):
+        self._lock = threading.Lock()
+        self._free = {scenario: [(t, t.cases[scenario]) for t in tenants if scenario in t.cases]
+                      for scenario in {s for t in tenants for s in t.cases}}
+
+    def take(self, scenario: str) -> tuple[EvalTenant, uuid.UUID]:
+        with self._lock:
+            if not self._free.get(scenario):
+                raise RuntimeError(f"no fresh case left for {scenario}: prepare one tenant per repetition")
+            return self._free[scenario].pop(0)
 
 
 def prepare_tenant(unit_of_work, store: PolicyStore, workdir: Path) -> EvalTenant:
     dataset = generate(seed=EVAL_SEED, payments=EVAL_PAYMENTS)
     write_dataset(dataset, workdir)
     with unit_of_work() as session:
-        tenant = Tenant(name="Evaluation", slug=f"eval-{datetime.now(UTC):%Y%m%d-%H%M%S}")
+        slug = f"eval-{datetime.now(UTC):%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
+        tenant = Tenant(name="Evaluation", slug=slug)
         session.add(tenant)
         session.flush()
         bind_tenant(session, tenant.id)
         roles = {r.name: r for r in session.scalars(select(Role))}
-        manager = User(tenant_id=tenant.id, email="eval-manager@eval.local", full_name="Eval Manager",
+        # The Agent Server acts as STUDIO_ACTOR_EMAIL in the tenant a run names.
+        manager = User(tenant_id=tenant.id, email=get_settings().studio_actor_email, full_name="Eval Manager",
                        roles=[roles[RoleName.MANAGER]])
         admin = User(tenant_id=tenant.id, email="eval-admin@eval.local", full_name="Eval Admin",
                      roles=[roles[RoleName.ADMIN]])
@@ -88,7 +112,10 @@ def prepare_tenant(unit_of_work, store: PolicyStore, workdir: Path) -> EvalTenan
             upload_policy(session, admin_actor, store, file_name=path.name, content=path.read_bytes(),
                           storage_dir=workdir / "storage")
         cases = _case_per_scenario(session, tenant.id, dataset.manifest)
-        return EvalTenant(tenant.id, manager.id, cases, dataset.manifest)
+        numbers = dict(session.execute(select(InvestigationCase.id, InvestigationCase.case_number)
+                                       .where(InvestigationCase.id.in_(cases.values()))).all())
+        return EvalTenant(tenant.id, manager.id, cases, dataset.manifest, slug,
+                          {scenario: numbers[case_id] for scenario, case_id in cases.items()})
 
 
 def _case_per_scenario(session, tenant_id: uuid.UUID, manifest: dict) -> dict[str, uuid.UUID]:
@@ -132,6 +159,36 @@ def investigate(unit_of_work, llm: ChatModelFactory, store: PolicyStore, tenant:
     return collect(unit_of_work, tenant.tenant_id, case_id, result.state, result.paused_for_approval)
 
 
+def investigate_on_server(agent_server, unit_of_work, tenant: EvalTenant, case_id: uuid.UUID,
+                          scenario: str) -> dict[str, Any]:
+    """Run `case-investigation` on the Agent Server (as Studio does) and collect the result from the records."""
+    from finrecon_ai.agent_server import CASE_GRAPH_ID
+
+    thread = agent_server.threads.create(metadata={"eval_tenant": tenant.slug, "scenario": scenario})
+    agent_server.runs.wait(thread["thread_id"], CASE_GRAPH_ID, raise_error=False,
+                           input={"case_number": tenant_case_number(tenant, case_id), "tenant_slug": tenant.slug})
+    snapshot = agent_server.threads.get_state(thread["thread_id"])
+    state = snapshot.get("values") or {}
+    error = state.get("error") or next((str(t["error"]) for t in snapshot.get("tasks", []) if t.get("error")), None)
+    paused = bool(snapshot.get("next"))
+    out = collect(unit_of_work, tenant.tenant_id, case_id, {**state, "error": error}, paused and not error)
+    out["thread_id"] = thread["thread_id"]
+    return out
+
+
+WORKFLOW_ORDER = ("investigation", "risk_analysis", "resolution")
+
+
+def _workflow_order(execution: AgentExecutionRecord) -> tuple:
+    """When the agents ran; ties (one transaction shares now()) in the workflow's order."""
+    name = execution.agent_name.value
+    return execution.started_at, WORKFLOW_ORDER.index(name) if name in WORKFLOW_ORDER else len(WORKFLOW_ORDER)
+
+
+def tenant_case_number(tenant: EvalTenant, case_id: uuid.UUID) -> str:
+    return next(n for s, n in tenant.case_numbers.items() if tenant.cases[s] == case_id)
+
+
 def collect(unit_of_work, tenant_id: uuid.UUID, case_id: uuid.UUID, state: dict, paused: bool) -> dict[str, Any]:
     with unit_of_work() as session:
         bind_tenant(session, tenant_id)
@@ -155,6 +212,10 @@ def collect(unit_of_work, tenant_id: uuid.UUID, case_id: uuid.UUID, state: dict,
             "findings": [{"type": f.finding_type.value, "statement": f.statement} for f in findings],
             "policies_cited": sorted(set(policy_titles)),
             "tools_used": sorted({c["tool"] for e in executions for c in (e.tool_calls or [])}),
+            # In order, per agent; subagents' calls carry their name. Read from the audited execution records.
+            "trajectory": [{"agent": e.agent_name.value, "tool": c["tool"], "subagent": c.get("subagent"),
+                            "path": (c.get("input") or {}).get("file_path"), "ok": c.get("ok", True)}
+                           for e in sorted(executions, key=_workflow_order) for c in (e.tool_calls or [])],
             "rejected_output": state.get("rejected_output", []),
             "agents": sorted({e.agent_name.value for e in executions}),
             "input_tokens": sum(e.input_tokens or 0 for e in executions),

@@ -5,10 +5,9 @@ import uuid
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from finrecon_ai.audit import verify_chain
-from finrecon_ai.authz import Actor, PermissionDenied, load_actor
+from finrecon_ai.authz import Actor, PermissionDenied
 from finrecon_ai.cases.service import (
     CaseError,
     CaseNotFound,

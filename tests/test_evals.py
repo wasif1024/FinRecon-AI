@@ -1,10 +1,12 @@
 """Evaluation harness, dataset and evaluators, with scripted agents (no Claude calls, no LangSmith traffic)."""
 
 import json
+import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 from qdrant_client import QdrantClient
 
 from finrecon_ai.agents import runtime
@@ -17,7 +19,7 @@ from finrecon_ai.evals.run import examples
 from finrecon_ai.evals.scenarios import EXPECTATIONS
 from finrecon_ai.policies.embedding import HashingEmbedder
 from finrecon_ai.policies.store import PolicyStore
-from tests.fakes import REPORT, AgentScripts, FakeClient, final, reply
+from tests.fakes import REPORT, AgentScripts, FakeClient, final, reply, tool_use
 from tests.test_agent_runtime import run as run_investigation
 from tests.test_workflows import investigation_steps, resolution_steps
 
@@ -46,7 +48,7 @@ def test_fee_scenario_output_feeds_the_evaluators(eval_tenant):
     run, example = SimpleNamespace(outputs=out), SimpleNamespace(outputs=reference["outputs"])
     scores = {f.__name__: f(run, example)["score"] for f in ev.CODE_EVALUATORS}
     assert scores == {"completed": 1, "resolution_acceptable": 1, "grounded": 0, "cites_expected_policy": 1,
-                      "checked_engine_evidence": 1, "no_fraud_determination": 1}, scores
+                      "checked_engine_evidence": 1, "read_playbook": 0, "no_fraud_determination": 1}, scores
 
 
 # --- evaluators ---
@@ -132,3 +134,129 @@ def test_execution_links_to_its_trace_only_when_tracing(session, world, case_ids
 
     monkeypatch.setattr(runtime, "tracing_enabled", lambda: True)
     assert run_investigation(session, ctx, FakeClient(final(REPORT))).execution.langsmith_run_id
+
+
+# --- 6b.3: Agent Server runs, repetitions, dataset file, metadata, pairwise judge ---
+
+
+def test_dataset_file_matches_the_scenarios():
+    """evals/dataset.jsonl is the reviewed source of truth; regenerate it when scenarios change."""
+    from finrecon_ai.evals import run as eval_run
+
+    on_disk = eval_run.load_examples()
+    assert on_disk == json.loads(json.dumps(eval_run.examples())), "run `finrecon eval dataset --regenerate`"
+    assert {e["outputs"]["expected_playbook"] for e in on_disk} <= set(load_prompt_files())
+
+
+def load_prompt_files():
+    from finrecon_ai.agents.prompt_registry import SKILLS_DIR
+
+    return {p.name for p in SKILLS_DIR.iterdir() if (p / "SKILL.md").is_file()}
+
+
+def test_dataset_sync_matches_by_case_and_never_deletes(tmp_path):
+    from finrecon_ai.evals.run import load_examples, plan_sync
+
+    local = [{"metadata": {"case": c}, "inputs": {"scenario": c}, "outputs": {"v": 2}} for c in ("a", "b", "c")]
+    remote = [SimpleNamespace(id="1", metadata={"case": "a"}, inputs={"scenario": "a"}, outputs={"v": 2}),
+              SimpleNamespace(id="2", metadata={"scenario": "b"}, inputs={"scenario": "b"}, outputs={"v": 1}),
+              SimpleNamespace(id="9", metadata={"case": "old"}, inputs={"scenario": "old"}, outputs={})]
+    create, update, remote_only = plan_sync(local, remote)
+    assert [e["metadata"]["case"] for e in create] == ["c"]
+    assert [example_id for example_id, _ in update] == ["2"], "updated in place: past experiments keep pointing at it"
+    assert remote_only == ["old"]
+
+    bad = tmp_path / "d.jsonl"
+    bad.write_text('{"metadata": {"case": "a"}, "inputs": {"scenario": "a"}}\n' * 2)
+    with pytest.raises(ValueError, match="duplicate case"):
+        load_examples(bad)
+
+
+def test_experiment_metadata_identifies_the_agent(tmp_path):
+    from finrecon_ai.evals.run import agent_fingerprint, estimated_cost, experiment_metadata
+
+    meta = experiment_metadata()
+    assert set(meta) >= {"git_sha", "git_dirty", "agent_fingerprint", "prompts", "models", "workspace"}
+    assert meta["prompts"]["investigation"].startswith("investigation@v3#")
+    assert {"claude-opus-5-5", "claude-haiku-5-5"} <= set(meta["models"])
+    (tmp_path / "src/finrecon_ai/agents").mkdir(parents=True)
+    (tmp_path / "src/finrecon_ai/agents/a.py").write_text("x = 1")
+    before = agent_fingerprint(tmp_path)
+    (tmp_path / "src/finrecon_ai/agents/a.py").write_text("x = 2")
+    assert agent_fingerprint(tmp_path) != before, "uncommitted edits change the fingerprint"
+    assert estimated_cost(13, 3) == 35.1
+
+
+def test_case_pool_gives_each_repetition_a_fresh_case():
+    from finrecon_ai.evals.harness import CasePool, EvalTenant
+
+    tenants = [EvalTenant(uuid.uuid4(), uuid.uuid4(), {"fee": uuid.uuid4()}, {}, f"eval-{i}") for i in range(2)]
+    pool = CasePool(tenants)
+    taken = [pool.take("fee") for _ in range(2)]
+    assert [t.slug for t, _ in taken] == ["eval-0", "eval-1"] and taken[0][1] != taken[1][1]
+    with pytest.raises(RuntimeError, match="no fresh case"):
+        pool.take("fee")
+
+
+def test_run_through_the_agent_server_feeds_the_evaluators(eval_tenant):
+    """The target starts `case-investigation` on the server; results and trajectory come from the records."""
+    from finrecon_ai.evals.harness import investigate_on_server
+
+    unit_of_work, store, tenant = eval_tenant
+    llm = AgentScripts(investigation=[reply("tool_use", tool_use(
+        "read_file", {"file_path": "/skills/fee-discrepancy/SKILL.md"})), *investigation_steps()],
+        resolution=resolution_steps())
+
+    class InProcessServer:  # stands in for the Agent Server: runs the same graph, here
+        def __init__(self):
+            self.inputs, self.saver = [], InMemorySaver()
+            server = self
+
+            class Threads:
+                def create(self, metadata=None):
+                    return {"thread_id": "t1"}
+
+                def get_state(self, thread_id):
+                    snap = server.graph.get_state({"configurable": {"thread_id": thread_id}})
+                    return {"values": snap.values, "next": list(snap.next), "tasks": []}
+
+            class Runs:
+                def wait(self, thread_id, graph_id, input, raise_error=False):
+                    server.inputs.append((graph_id, input))
+                    from finrecon_ai.authz import load_actor
+                    from finrecon_ai.workflows.case_investigation import WorkflowDeps, build_case_graph, initial_state
+
+                    with unit_of_work() as session:
+                        actor = load_actor(session, tenant.tenant_id, tenant.manager_id)
+                    server.graph = build_case_graph(WorkflowDeps(unit_of_work, llm, store), server.saver)
+                    return server.graph.invoke(initial_state(actor, tenant.cases["fee_discrepancy"]),
+                                               {"configurable": {"thread_id": thread_id}})
+
+            self.threads, self.runs = Threads(), Runs()
+
+    server = InProcessServer()
+    out = investigate_on_server(server, unit_of_work, tenant, tenant.cases["fee_discrepancy"], "fee_discrepancy")
+    assert server.inputs == [("case-investigation", {"case_number": tenant.case_numbers["fee_discrepancy"],
+                                                     "tenant_slug": tenant.slug})]
+    reference = next(e for e in examples() if e["inputs"]["scenario"] == "fee_discrepancy")["outputs"]
+    run_obj, example = SimpleNamespace(outputs=out), SimpleNamespace(outputs=reference)
+    assert out["completed"] and ev.read_playbook(run_obj, example)["score"] == 1
+    assert [t["tool"] for t in out["trajectory"]][:2] == ["read_file", "get_case_transactions"]
+
+
+def test_read_playbook_needs_the_category_playbook():
+    run_obj, example = _pair({"completed": True, "trajectory": [
+        {"agent": "resolution", "tool": "read_file", "path": "/skills/duplicates/SKILL.md", "ok": True}]},
+        {"expected_playbook": "duplicates"})[0]
+    assert ev.read_playbook(run_obj, example)["score"] == 0, "only the investigation's own reading counts"
+
+
+def test_pairwise_judge_scores_both_runs():
+    verdict = json.dumps({"reasoning": "B cites the policy.", "preferred": "B"})
+    client = FakeClient(reply("end_turn", verdict))
+    judge = ev.make_pairwise_judge(client(None))
+    runs = [SimpleNamespace(id="ra", outputs={"completed": True, "resolution_type": "escalate"}),
+            SimpleNamespace(id="rb", outputs={"completed": True, "resolution_type": "request_documentation"})]
+    result = judge(runs, SimpleNamespace(outputs={"root_cause": "fee"}))
+    assert result == {"key": "recommendation_preference", "scores": {"ra": 0, "rb": 1}}
+    assert "<A>" in client.calls[0]["messages"][0].content and ev.PAIRWISE_SYSTEM in client.calls[0]["system"]

@@ -175,11 +175,20 @@ def main(argv: list[str] | None = None) -> int:
 
     evals = commands.add_parser("eval", help="LangSmith evaluation of the agent workflow")
     eval_commands = evals.add_subparsers(dest="eval_command", required=True)
-    eval_commands.add_parser("dataset", help="create or refresh the scenario dataset in LangSmith (no Claude calls)")
-    eval_run = eval_commands.add_parser("run", help="run an experiment over every planted scenario (calls Claude, "
-                                        "~$5 for all 13; creates a fresh eval-* tenant)")
+    eval_dataset = eval_commands.add_parser("dataset", help="sync evals/dataset.jsonl to LangSmith (no Claude calls)")
+    eval_dataset.add_argument("--regenerate", action="store_true",
+                              help="first rewrite the JSONL from evals/scenarios.py and the generator")
+    eval_run = eval_commands.add_parser("run", help="run an experiment through the Agent Server (calls Claude; "
+                                        "shows the estimated cost and asks first)")
     eval_run.add_argument("--scenario", action="append", help="limit to these scenarios (repeatable)")
-    eval_run.add_argument("--prefix", default="baseline", help="experiment name prefix")
+    eval_run.add_argument("--repetitions", type=int, default=3, help="runs per scenario; agents vary (default 3)")
+    eval_run.add_argument("--prefix", default="agents", help="name experiments by what you changed")
+    eval_run.add_argument("--max-concurrency", type=int, default=3)
+    eval_run.add_argument("--no-judge", action="store_true", help="skip the LLM-as-judge evaluator")
+    eval_run.add_argument("--yes", action="store_true", help="do not ask before spending")
+    eval_compare = eval_commands.add_parser("compare", help="pairwise judge of two experiments (calls Claude)")
+    eval_compare.add_argument("experiment_a")
+    eval_compare.add_argument("experiment_b")
 
     args = parser.parse_args(argv)
     _setup_logging()
@@ -654,20 +663,44 @@ def _agents_try(session: Session, tenant: Tenant, case_number: str) -> int:
 def _eval(args: argparse.Namespace) -> int:
     from langsmith import Client
 
-    from finrecon_ai.evals.run import DATASET, run_experiment, sync_dataset
+    from finrecon_ai.evals import run
+    from finrecon_ai.evals.scenarios import EXPECTATIONS
 
     if not os.environ.get("LANGSMITH_API_KEY"):
         print("set LANGSMITH_API_KEY (and LANGSMITH_TRACING=true) in .env first", file=sys.stderr)
         return 1
     if args.eval_command == "dataset":
-        sync_dataset(Client())
-        print(f"dataset {DATASET} is up to date")
+        if args.regenerate:
+            run.write_dataset_file()
+        result = run.sync_dataset(Client())
+        print(f"dataset {run.DATASET}: {result['created']} created, {result['updated']} updated")
+        if result["remote_only"]:
+            print(f"  only in LangSmith (not deleted): {', '.join(result['remote_only'])}")
         return 0
-    name, scores = run_experiment(args.scenario, args.prefix)
+    if args.eval_command == "compare":
+        run.compare_experiments(args.experiment_a, args.experiment_b)
+        print("done: open either experiment in LangSmith for the pairwise results")
+        return 0
+    scenarios = len(args.scenario or EXPECTATIONS)
+    cost = run.estimated_cost(scenarios, args.repetitions)
+    print(f"{scenarios} scenario(s) x {args.repetitions} repetition(s) = {scenarios * args.repetitions} "
+          f"investigations through the Agent Server; estimated Claude cost ${cost:.2f}")
+    if not args.yes and _ask("Continue? [y/N] ") != "y":
+        print("cancelled")
+        return 1
+    name, scores = run.run_experiment(args.scenario, args.prefix, args.repetitions, args.max_concurrency,
+                                      judge=not args.no_judge)
     print(f"experiment {name}")
     for key, (mean, n) in sorted(scores.items()):
         print(f"  {key:<26} {mean:6.2f}  (n={n})")
     return 0
+
+
+def _ask(prompt: str) -> str:
+    try:
+        return input(prompt).strip().lower()
+    except EOFError:  # no terminal (scripts, CI): never spend by default
+        return ""
 
 
 def _prompts(args: argparse.Namespace) -> int:

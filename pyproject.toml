@@ -43,6 +43,7 @@ dev = [
     "httpx2>=2.16.0",
     "langgraph-cli[inmem]>=0.4.40",
     "pytest>=9.2.0",
+    "ruff>=0.15",
 ]
 
 [tool.pytest.ini_options]
@@ -54,3 +55,14 @@ filterwarnings = [
     # In-memory Qdrant (tests only) ignores payload indexes; the server uses them.
     "ignore:Payload indexes have no effect in the local Qdrant:UserWarning",
 ]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+# The CI gate: real errors (unused or undefined names, redefinitions, ...). Tests import pytest fixtures from other
+# test modules, which pyflakes reports as redefinitions.
+select = ["F"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["F811"]

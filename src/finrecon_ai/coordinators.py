@@ -43,11 +43,12 @@ def coordinator_prompt(name: str) -> str:
     return (PROMPTS_DIR / "coordinators" / f"{name}.md").read_text().strip() + "\n"
 
 
-def studio_actor(session) -> Actor:
-    """The user Agent Server runs act as (development only; see agent_server)."""
+def studio_actor(session, tenant_slug: str | None = None) -> Actor:
+    """The user Agent Server runs act as (development only; see agent_server): STUDIO_ACTOR_EMAIL in
+    STUDIO_TENANT_SLUG, or in `tenant_slug` (evaluation tenants have a user with that email)."""
     settings = get_settings()
     bypass_rls(session)  # finding the configured tenant and user; everything after runs tenant-scoped
-    tenant = session.scalar(select(Tenant).where(Tenant.slug == settings.studio_tenant_slug))
+    tenant = session.scalar(select(Tenant).where(Tenant.slug == (tenant_slug or settings.studio_tenant_slug)))
     user = tenant and session.scalar(select(User).where(User.tenant_id == tenant.id,
                                                         User.email == settings.studio_actor_email))
     if not (tenant and user):

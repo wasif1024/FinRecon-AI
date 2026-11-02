@@ -73,3 +73,18 @@ EXPECTATIONS: dict[Scenario, Expectation] = {
         ExceptionCategory.UNMATCHED, (R.NO_ACTION_REQUIRED, R.REQUEST_DOCUMENTATION), None,
         "A routine monthly account maintenance fee debited by the bank; no counterpart is expected."),
 }
+
+
+# The playbook (agents/prompts/_skills) a good investigation reads for each kind of case.
+CATEGORY_PLAYBOOK: dict[ExceptionCategory, str] = {
+    ExceptionCategory.FEE_DISCREPANCY: "fee-discrepancy",
+    ExceptionCategory.AMOUNT_MISMATCH: "short-bank-credit",
+    ExceptionCategory.MISSING_SETTLEMENT: "missing-records",
+    ExceptionCategory.UNMATCHED: "missing-records",
+    ExceptionCategory.DATE_MISMATCH: "late-credit",
+    ExceptionCategory.PARTIALLY_MATCHED: "reference-errors",
+    ExceptionCategory.CURRENCY_MISMATCH: "currency-mismatch",
+    ExceptionCategory.CONFIRMED_DUPLICATE: "duplicates",
+    ExceptionCategory.POTENTIAL_DUPLICATE: "duplicates",
+    ExceptionCategory.ANOMALY: "anomaly-indicators",
+}

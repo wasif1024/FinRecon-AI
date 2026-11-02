@@ -30,7 +30,7 @@ def test_case_graph_opens_the_case_then_runs_the_workflow(monkeypatch):
     graph = agent_server.case_investigation({"configurable": {}}, DRAWING)
     nodes = set(graph.get_graph(xray=1).nodes)
     assert {"open_case", "case_workflow:investigate", "case_workflow:await_decision"} <= nodes
-    assert list(graph.get_input_jsonschema()["properties"]) == ["case_number"]
+    assert set(graph.get_input_jsonschema()["properties"]) == {"case_number", "tenant_slug"}
 
 
 def test_graphs_refuse_outside_development(monkeypatch):

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend (lint + tests)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      # The suite migrates and uses <database>_test. It connects as a non-superuser that owns the tables, as the
+      # app does: superusers bypass row-level security, which the tenancy tests check.
+      DATABASE_URL: postgresql+psycopg://finrecon:finrecon@localhost:5432/finrecon
+      JWT_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+      # No real keys: the tests never call Claude, send traces or create sandboxes.
+      LANGSMITH_TRACING: "false"
+      AGENT_WORKSPACE: state
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+      - name: Create the application role and test database
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -c "CREATE ROLE finrecon LOGIN PASSWORD 'finrecon'"
+          psql -h localhost -U postgres -c "CREATE DATABASE finrecon_test OWNER finrecon"
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run langgraph validate
+      - run: uv run pytest -q
+
+  frontend:
+    name: Frontend (lint + types + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build

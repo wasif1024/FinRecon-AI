@@ -2,7 +2,6 @@
 
 import uuid
 from contextlib import contextmanager, nullcontext
-from datetime import timedelta
 
 import jwt
 import pytest

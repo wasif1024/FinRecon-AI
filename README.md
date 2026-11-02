@@ -4,6 +4,8 @@
   <img src="docs/assets/finrecon-flow.svg" alt="FinRecon AI pipeline: three financial sources are ingested, matched deterministically and turned into exceptions, which AI agents investigate and humans approve; every step is written to a hash-chained audit log." width="100%">
 </p>
 
+[![CI](https://github.com/wasif1024/FinRecon-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/wasif1024/FinRecon-AI/actions/workflows/ci.yml)
+
 Agentic AI platform for financial reconciliation, exception investigation and human-approved resolution. See [docs/SRS.md](docs/SRS.md).
 
 ## Screenshots
@@ -187,9 +189,16 @@ auditors) compares each agent and prompt version: runs, success rate, p50/p95 la
 tool errors, runs whose output failed evidence verification, and what reviewers decided.
 
 **Evaluation.** The synthetic generator plants each problem on purpose, so every scenario has a known root
-cause. `src/finrecon_ai/evals/` turns that into a LangSmith dataset (`finrecon-agent-scenarios`, one example per
-scenario, with the acceptable resolutions, the governing policy and the root cause). An experiment runs the real
-workflow on a fresh `eval-*` tenant and grades each case:
+cause. `evals/dataset.jsonl` (in the repo, reviewed like code) holds one example per scenario: acceptable
+resolutions, governing policy, the playbook to read, and the root cause with the planted figures. It is synced to
+the LangSmith dataset `finrecon-agent-scenarios` by case, updating examples in place (past experiments keep
+pointing at them) and never deleting.
+
+An experiment runs each scenario through the **Agent Server** (`case-investigation`, as Studio does), **3 times
+by default** because agents vary, each repetition on its own fresh `eval-*` tenant. Results and the trajectory
+(every tool call, subagents' included) come from the audited records. Each experiment records the git SHA,
+whether the tree was dirty, an **agent fingerprint** (hash of the agents' code and prompts, so two experiments with
+the same fingerprint ran the same agent), the prompt versions and the models.
 
 | Evaluator | Checks |
 |---|---|
@@ -198,17 +207,31 @@ workflow on a fresh `eval-*` tenant and grades each case:
 | `grounded` | No cited evidence had to be dropped or downgraded |
 | `cites_expected_policy` | The governing policy was cited |
 | `checked_engine_evidence` | The agents looked at the case's transactions |
+| `read_playbook` | The investigation read the playbook for the case's category |
 | `no_fraud_determination` | No finding or recommendation declares fraud |
 | `root_cause_identified` | Claude as judge: the explanation matches the planted root cause |
+| `recommendation_preference` | `eval compare`: pairwise Claude judge between two experiments, order randomised |
 
 ```bash
-uv run finrecon eval dataset                          # create/refresh the dataset (free)
-uv run finrecon eval run                              # all 13 scenarios, calls Claude (~$5)
-uv run finrecon eval run --scenario fee_discrepancy --prefix fee-v2
+uv run finrecon eval dataset                               # sync the JSONL to LangSmith (free)
+uv run finrecon eval dataset --regenerate                  # after changing evals/scenarios.py
+scripts/studio.sh                                          # (other terminal) the Agent Server
+uv run finrecon eval run                                   # 13 x 3 runs; prints the estimated cost (~$35), asks
+uv run finrecon eval run --scenario fee_discrepancy --repetitions 1 --prefix fee-v4
+uv run finrecon eval compare <experiment-a> <experiment-b>
 ```
 
 Results appear under *Datasets & Experiments* in LangSmith; compare experiments before releasing a new prompt
 version.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request, with no API keys (the tests never
+call Claude, send traces or create sandboxes):
+
+- **Backend:** `ruff check`, `langgraph validate`, and the full test suite against PostgreSQL 18, connected as a
+  non-superuser table owner (as the app is) so row-level security is really enforced.
+- **Frontend:** `pnpm lint`, `pnpm typecheck`, `pnpm build`.
 
 ## Policy documents
 
