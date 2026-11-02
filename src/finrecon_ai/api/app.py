@@ -48,6 +48,9 @@ def create_app(settings: Settings | None = None, rt: Runtime | None = None) -> F
         from finrecon_ai.tracing import configure_tracing
 
         configure_tracing(settings)
+        from finrecon_ai.telemetry import configure_telemetry
+
+        configure_telemetry(settings, "finrecon-api")  # before the engine exists, so queries are traced
         rt = default_runtime(settings)
     if len(rt.jwt_secret or "") < MIN_SECRET_LENGTH:
         raise RuntimeError(f"JWT_SECRET must be set to at least {MIN_SECRET_LENGTH} characters")
@@ -68,6 +71,9 @@ def create_app(settings: Settings | None = None, rt: Runtime | None = None) -> F
         app.include_router(module.router)
     for rpc_app in rpc_applications(rt):
         app.mount(rpc_app.path, rpc_app)
+    from finrecon_ai.telemetry import instrument_app
+
+    instrument_app(app)
     return app
 
 

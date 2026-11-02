@@ -45,6 +45,7 @@ Or, once `.env` is filled in, start everything with one command:
 ```bash
 scripts/start.sh            # API :8000 + dashboard :3000; Ctrl-C stops both
 scripts/start.sh --studio   # also the Agent Server for LangSmith Studio (:2024)
+scripts/start.sh --otel     # also Grafana for OpenTelemetry (:3001), with the API and dashboard exporting to it
 scripts/start.sh --prod     # dashboard as a production build
 scripts/start.sh --check    # checks and migrations only
 ```
@@ -229,6 +230,24 @@ experiment instead (*Datasets & Experiments* → `finrecon-agent-scenarios`). Ea
 `agent_execution_records.langsmith_run_id` links the database record to its trace. Set `LANGSMITH_HIDE_CONTENT=true`
 to send structure, timings and tokens without inputs or outputs (use it before real customer data reaches the
 system). Tests never send traces.
+
+**OpenTelemetry.** The service view, next to LangSmith's agent view. Set `OTEL_EXPORTER_OTLP_ENDPOINT` (any
+OTLP/HTTP collector; the standard `OTEL_*` variables apply) or run `scripts/start.sh --otel`, which starts
+`grafana/otel-lgtm` (Grafana on http://localhost:3001 with Tempo, Prometheus and Loki) and points both services
+at it. Off when unset.
+
+- **Traces:** one per page view or request, across both services: the dashboard's server render or action, its
+  Connect call (named after the RPC, W3C `traceparent` passed on), the API's server span
+  (`finrecon.v1.CaseService/GetCase`, with the Connect error code when refused), every PostgreSQL query (statement
+  with placeholders, never the values) and every outbound HTTP call (Claude, LangSmith, the Agent Server).
+  Investigations add `workflow.investigate` / `.resume` / `.recover` spans with their outcome, and an
+  `agent.<name>` span per agent run with model and token counts; background runs continue the request's trace.
+  Each CLI command is one trace (`cli.db`, `cli.investigate`, ...). Queries and calls made outside any of these
+  (connection setup, the health check's probes) are not exported, so the list stays readable.
+- **Metrics:** HTTP server duration, size and active requests; `finrecon.workflow.runs` (by kind and outcome),
+  `finrecon.agent.runs`, `finrecon.agent.duration` and `finrecon.agent.tokens` (by agent, model, direction).
+- **Logs:** every log line written inside a span carries its `trace_id` and `span_id`, so a log line leads to its
+  trace (in Grafana: Explore → Tempo → paste the id).
 
 **Monitoring.** The dashboard's *Agent performance* page (`GET /metrics/agents?days=30`; managers, admins,
 auditors) compares each agent and prompt version: runs, success rate, p50/p95 latency, tokens, estimated cost,

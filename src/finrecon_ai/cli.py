@@ -200,11 +200,18 @@ def main(argv: list[str] | None = None) -> int:
     eval_compare.add_argument("experiment_b")
 
     args = parser.parse_args(argv)
-    _setup_logging()
+    _setup_logging(args.command)
     with log_context(correlation_id=new_correlation_id(), command=args.command):
         log.info("cli.started", argv=sys.argv[1:] if argv is None else argv)
+        from contextlib import nullcontext
+
+        from finrecon_ai.telemetry import tracer
+
+        # One trace per command for its queries and calls; the server's requests are traces of their own.
+        span = nullcontext() if args.command == "serve" else tracer.start_as_current_span(f"cli.{args.command}")
         try:
-            code = _run(parser, args)
+            with span:
+                code = _run(parser, args)
         except Exception:
             log.exception("cli.failed")
             raise
@@ -264,7 +271,7 @@ def _db(args: argparse.Namespace) -> int:
     return 0
 
 
-def _setup_logging() -> None:
+def _setup_logging(command: str | None = None) -> None:
     from finrecon_ai.config import get_settings
 
     try:
@@ -273,6 +280,9 @@ def _setup_logging() -> None:
         from finrecon_ai.tracing import configure_tracing
 
         configure_tracing(settings)
+        from finrecon_ai.telemetry import configure_telemetry
+
+        configure_telemetry(settings, "finrecon-api" if command == "serve" else "finrecon-cli")
     except Exception:  # e.g. generate-data without a .env: still log to the terminal
         configure_logging()
 

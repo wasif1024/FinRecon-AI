@@ -103,7 +103,16 @@ def get_logger(name: str) -> EventLogger:
 
 
 def _record_fields(record: logging.LogRecord) -> dict[str, Any]:
-    return redact({**_context.get(), **getattr(record, "fields", {})})
+    return redact({**_context.get(), **getattr(record, "fields", {}), **_trace_ids()})
+
+
+def _trace_ids() -> dict[str, str]:
+    """The OpenTelemetry trace and span the line was written in, if telemetry is on (telemetry.py)."""
+    from opentelemetry import trace
+
+    span = trace.get_current_span().get_span_context()
+    return {"trace_id": format(span.trace_id, "032x"), "span_id": format(span.span_id, "016x")} \
+        if span.is_valid else {}
 
 
 class JsonFormatter(logging.Formatter):

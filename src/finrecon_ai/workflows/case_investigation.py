@@ -22,6 +22,7 @@ from langgraph.types import Command, RetryPolicy, interrupt
 from sqlalchemy import column, func, select
 from sqlalchemy.orm import Session
 
+from finrecon_ai import telemetry
 from finrecon_ai.agents.llm import ChatModelFactory
 from finrecon_ai.agents.persistence import persist_findings, persist_recommendation
 from finrecon_ai.agents.prompt_registry import load_prompt
@@ -131,8 +132,24 @@ def investigate_case(deps: WorkflowDeps, checkpointer: Any, actor: Actor, case_i
     graph = build_case_graph(deps, checkpointer)
     config = _run_config(actor.tenant_id, case_id, "case_investigation")
     with log_context(case_id=case_id, workflow=WORKFLOW_VERSION):
-        state = graph.invoke(initial_state(actor, case_id), config)
+        state = _invoke(graph, config, initial_state(actor, case_id), "investigate", case_id)
     return WorkflowResult(thread_id_for(case_id), bool(graph.get_state(config).next), dict(state))
+
+
+def _invoke(graph, config: dict[str, Any], value: Any, kind: str, case_id: uuid.UUID) -> dict[str, Any]:
+    """graph.invoke inside an OpenTelemetry span, counting how the run ended."""
+    with telemetry.tracer.start_as_current_span(f"workflow.{kind}", attributes={
+            "finrecon.case_id": str(case_id), "finrecon.workflow": WORKFLOW_VERSION}) as span:
+        try:
+            state = graph.invoke(value, config)
+        except Exception:
+            telemetry.workflow_runs.add(1, {"kind": kind, "outcome": "error"})
+            raise
+        outcome = ("paused_for_approval" if graph.get_state(config).next
+                   else "failed" if state.get("error") else "finished")
+        span.set_attribute("finrecon.workflow.outcome", outcome)
+        telemetry.workflow_runs.add(1, {"kind": kind, "outcome": outcome})
+    return state
 
 
 def authorize_start(deps: WorkflowDeps, checkpointer: Any, actor: Actor, case_id: uuid.UUID,
@@ -176,7 +193,7 @@ def resume_case(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID, decis
     if graph.get_state(config).next != ("await_decision",):
         raise WorkflowError("this case's workflow is not waiting for a decision")
     with log_context(case_id=case_id, workflow=WORKFLOW_VERSION):
-        state = graph.invoke(Command(resume=decision), config)
+        state = _invoke(graph, config, Command(resume=decision), "resume", case_id)
     return WorkflowResult(thread_id_for(case_id), bool(graph.get_state(config).next), dict(state))
 
 
@@ -242,7 +259,7 @@ def recover_case(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID) -> W
         return None
     log.info("workflow.recovering", case_id=case_id, next=list(snapshot.next))
     with log_context(case_id=case_id, workflow=WORKFLOW_VERSION):
-        state = graph.invoke(None, config)
+        state = _invoke(graph, config, None, "recover", case_id)
     return WorkflowResult(thread_id_for(case_id), bool(graph.get_state(config).next), dict(state))
 
 

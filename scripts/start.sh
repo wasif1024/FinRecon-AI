@@ -6,6 +6,7 @@
 #   scripts/start.sh            API + dashboard (next dev)
 #   scripts/start.sh --prod     dashboard as a production build (next build + start)
 #   scripts/start.sh --studio   also the LangGraph Agent Server for LangSmith Studio (:2024)
+#   scripts/start.sh --otel     also Grafana for OpenTelemetry (:3001), with the API and dashboard exporting to it
 #   scripts/start.sh --check    run every check and migration, start nothing
 #
 # Values are read from .env (and frontend/.env.local); variables already exported in the shell win, as they do
@@ -13,13 +14,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PROD=false STUDIO=false CHECK_ONLY=false
+PROD=false STUDIO=false OTEL=false CHECK_ONLY=false
 for arg in "$@"; do
   case "$arg" in
     --prod) PROD=true ;;
     --studio) STUDIO=true ;;
+    --otel) OTEL=true ;;
     --check) CHECK_ONLY=true ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -42,6 +44,10 @@ port_free() { ! lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
 
 # --- tools ---
 step "Tools"
+# Docker Desktop's credential helper (needed to pull images) lives in the app bundle; add it if it is not on PATH.
+if ! command -v docker-credential-desktop >/dev/null && [[ -d /Applications/Docker.app/Contents/Resources/bin ]]; then
+  export PATH="$PATH:/Applications/Docker.app/Contents/Resources/bin"
+fi
 for tool in uv pnpm docker lsof; do
   command -v "$tool" >/dev/null || fail "$tool is not installed"
 done
@@ -115,6 +121,15 @@ if ! docker info >/dev/null 2>&1; then
 fi
 docker compose up -d --wait qdrant >/dev/null 2>&1 || fail "Qdrant did not become healthy (docker compose logs qdrant)"
 ok "Qdrant is healthy"
+if $OTEL; then
+  docker compose --profile otel up -d otel-lgtm >/dev/null 2>&1 || fail "could not start Grafana (docker compose logs otel-lgtm)"
+  for _ in $(seq 60); do curl -fs http://127.0.0.1:3001/api/health >/dev/null 2>&1 && break; sleep 2; done
+  curl -fs http://127.0.0.1:3001/api/health >/dev/null 2>&1 || fail "Grafana did not come up on :3001"
+  # The API and the dashboard export to it (unless .env or the shell already names a collector).
+  export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-$(value OTEL_EXPORTER_OTLP_ENDPOINT .env)}"
+  export OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://127.0.0.1:4318}"
+  ok "Grafana is up; exporting to $OTEL_EXPORTER_OTLP_ENDPOINT"
+fi
 
 # --- migrations and logins ---
 step "Database migrations"
@@ -187,6 +202,7 @@ curl -fs http://127.0.0.1:8000/health >/dev/null 2>&1 && ok "API      http://127
 for _ in $(seq 60); do curl -fs -o /dev/null http://127.0.0.1:3000/login 2>/dev/null && break; sleep 1; done
 ok "Dashboard http://localhost:3000"
 $STUDIO && ok "Studio    https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024 (Chrome)"
+$OTEL && ok "Grafana   http://localhost:3001 (Explore: Tempo for traces, Prometheus for metrics, Loki for logs)"
 echo "    Ctrl-C stops everything."
 
 # Exit (and stop the rest) as soon as any of them dies.

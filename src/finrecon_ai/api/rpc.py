@@ -33,6 +33,7 @@ from finrecon.v1 import identity_pb2 as identity_pb
 from finrecon.v1.approvals_connect import ApprovalServiceASGIApplication
 from finrecon.v1.cases_connect import CaseServiceASGIApplication
 from finrecon.v1.identity_connect import IdentityServiceASGIApplication
+from finrecon_ai import telemetry
 from finrecon_ai.api.deps import Runtime, authenticate
 from finrecon_ai.api.errors import status_for
 from finrecon_ai.api.routes import approvals, auth, cases, users
@@ -283,7 +284,23 @@ class ApprovalService(_Service):
         return await self._call(ctx, work)
 
 
+class TelemetryInterceptor:
+    """Names the request's OpenTelemetry span after the RPC and records the Connect error code, for every call,
+    including requests refused before a service method runs."""
+
+    async def intercept_unary(self, call_next, request, ctx: RequestContext):
+        method = ctx.method()
+        telemetry.name_rpc_span(method.service_name, method.name)
+        try:
+            return await call_next(request, ctx)
+        except ConnectError as error:
+            telemetry.record_rpc_error(error.code.value)
+            raise
+
+
 def rpc_applications(rt: Runtime) -> list:
     """The ASGI apps to mount, each at its own path (/finrecon.v1.CaseService/...)."""
-    return [IdentityServiceASGIApplication(IdentityService(rt)), CaseServiceASGIApplication(CaseService(rt)),
-            ApprovalServiceASGIApplication(ApprovalService(rt))]
+    interceptors = [TelemetryInterceptor()]
+    return [IdentityServiceASGIApplication(IdentityService(rt), interceptors=interceptors),
+            CaseServiceASGIApplication(CaseService(rt), interceptors=interceptors),
+            ApprovalServiceASGIApplication(ApprovalService(rt), interceptors=interceptors)]

@@ -1,6 +1,8 @@
 # docker compose up -d                          -> Qdrant
 # docker compose --profile web up -d --build    -> Qdrant + API (:8000) + dashboard (:3000)
 # docker compose run --rm app <command>         -> run the CLI in a container, e.g. `policies list`
+# docker compose --profile otel up -d otel-lgtm  -> Grafana with Tempo, Prometheus and Loki for OpenTelemetry
+#                                                   (UI :3001, OTLP :4317 gRPC / :4318 HTTP; scripts/start.sh --otel)
 #
 # PostgreSQL runs on the host for now; the app container reaches it through host.docker.internal.
 
@@ -78,6 +80,18 @@ services:
     depends_on:
       - api
 
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.37.0
+    profiles: ["otel"]
+    ports:
+      - "3001:3000"  # Grafana (the dashboard has :3000)
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+    volumes:
+      - otel_data:/data
+    restart: unless-stopped
+
 volumes:
+  otel_data:
   qdrant_data:
   fastembed_cache:

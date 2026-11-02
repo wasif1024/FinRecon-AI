@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     langsmith_tracing: bool = False
     langsmith_project: str = "finrecon-ai"
     langsmith_endpoint: str | None = None
-    langsmith_hide_content: bool = False  # keep trace structure, send no inputs/outputs (for real data)
+    langsmith_hide_content: bool = False
+    # OpenTelemetry (telemetry.py): on when set, e.g. http://localhost:4318. Standard OTEL_* variables also apply.
+    otel_exporter_otlp_endpoint: str | None = None  # keep trace structure, send no inputs/outputs (for real data)
 
     # Long-running workflows: at API startup, finish runs a previous process left mid-way.
     recover_on_startup: bool = True

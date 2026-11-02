@@ -2,6 +2,7 @@ import "server-only";
 
 import { Code, ConnectError, createClient, type Interceptor, type Transport } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-node";
+import { context, propagation, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 
@@ -24,6 +25,31 @@ const withToken: Interceptor = (next) => async (request) => {
   const token = await getToken();
   if (token) request.header.set("Authorization", `Bearer ${token}`);
   return next(request);
+};
+
+const tracer = trace.getTracer("finrecon-dashboard");
+
+/**
+ * A client span per RPC, and the trace context passed to the API (W3C traceparent), so the API's spans join the
+ * page's trace. No-ops unless OpenTelemetry is on (src/instrumentation.ts).
+ */
+const traced: Interceptor = (next) => (request) => {
+  const service = request.service.typeName;
+  const method = request.method.name;
+  return tracer.startActiveSpan(`${service}/${method}`, {
+    kind: SpanKind.CLIENT, attributes: { "rpc.system": "connect_rpc", "rpc.service": service, "rpc.method": method },
+  }, async (span) => {
+    propagation.inject(context.active(), request.header, { set: (header, key, value) => header.set(key, value) });
+    try {
+      return await next(request);
+    } catch (error) {
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      span.setAttribute("rpc.connect_rpc.error_code", Code[ConnectError.from(error).code]);
+      throw error;
+    } finally {
+      span.end();
+    }
+  });
 };
 
 /**
@@ -54,7 +80,7 @@ let transport: Transport | undefined;
 function getTransport(): Transport {
   const baseUrl = process.env.API_URL;
   if (!baseUrl) throw new Error("API_URL is not set");
-  transport ??= createConnectTransport({ baseUrl, httpVersion: "1.1", useBinaryFormat: true, interceptors: [withToken] });
+  transport ??= createConnectTransport({ baseUrl, httpVersion: "1.1", useBinaryFormat: true, interceptors: [traced, withToken] });
   return transport;
 }
 

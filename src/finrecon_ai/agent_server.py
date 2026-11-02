@@ -68,6 +68,9 @@ def _deps() -> WorkflowDeps:
     from finrecon_ai.tracing import configure_tracing
 
     configure_tracing(get_settings())
+    from finrecon_ai.telemetry import configure_telemetry
+
+    configure_telemetry(get_settings(), "finrecon-agent-server")
     from finrecon_ai.agents.workspace import default_workspaces
 
     return WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store(),

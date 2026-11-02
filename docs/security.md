@@ -62,6 +62,9 @@ prevented by parameterised queries (SQLAlchemy throughout) and by never building
   generic body with the request ID, never internals; over RPC they are `INTERNAL` with the message "internal
   error" (connect-python would otherwise send the exception text), and another tenant's case is `NOT_FOUND`, like
   a missing one (`test_rpc.py`).
+- OpenTelemetry spans carry ids, routes, statuses, durations and counts: SQL statements with placeholders, never
+  their values, and no request bodies or prompt text (`telemetry.py`, `test_telemetry.py`). It is off unless an
+  OTLP endpoint is configured.
 - Uploaded files are size- and type-checked before parsing; corrupt, encrypted and zip-bomb documents are refused.
 - CSV report exports neutralise cells a spreadsheet would execute (leading `=`, `+`, `-`, `@`, tab, carriage
   return) with a leading quote, while genuine negative amounts stay numbers (`reports/service.py::safe_cell`,

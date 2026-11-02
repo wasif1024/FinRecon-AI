@@ -13,7 +13,8 @@ from LangChain's tracer; the record keeps the trace's root run id. The caller co
 import json
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -45,6 +46,7 @@ from finrecon_ai.audit import record_event
 from finrecon_ai.db.enums import ActorType, AgentExecutionStatus
 from finrecon_ai.db.models import AgentExecutionRecord
 from finrecon_ai.log import get_logger, log_context
+from finrecon_ai import telemetry
 from finrecon_ai.tracing import tracing_enabled
 
 log = get_logger(__name__)
@@ -118,7 +120,8 @@ def run_agent(
                      "execution_id": str(execution.id), "model": manifest.model},
     }
     started = time.perf_counter()
-    with log_context(execution_id=execution.id, case_id=ctx.case.id, agent=manifest.id.value, prompt=spec.ref):
+    with log_context(execution_id=execution.id, case_id=ctx.case.id, agent=manifest.id.value, prompt=spec.ref), \
+            _observed(manifest.id.value, manifest.model, execution):
         log.info("agent.started", model=manifest.model, effort=manifest.effort, tools=len(manifest.tools),
                  subagents=len(manifest.subagents))
         try:
@@ -323,6 +326,22 @@ class RunObserver(BaseCallbackHandler):
                  cache_read_tokens=(usage.get("input_token_details") or {}).get("cache_read"),
                  duration_ms=round((time.perf_counter() - started) * 1000, 1) if started else None,
                  anthropic_request_id=meta.get("id"))
+
+
+@contextmanager
+def _observed(agent: str, model: str, execution: AgentExecutionRecord) -> Iterator[None]:
+    """An OpenTelemetry span for the run, and its metrics (count, duration, tokens) however it ends."""
+    started = time.perf_counter()
+    with telemetry.tracer.start_as_current_span(f"agent.{agent}", attributes={
+            "finrecon.agent": agent, "finrecon.execution_id": str(execution.id), "gen_ai.request.model": model}) as span:
+        try:
+            yield
+        finally:
+            status = execution.status.value
+            span.set_attributes({"finrecon.agent.status": status,
+                                 "gen_ai.usage.input_tokens": execution.input_tokens or 0,
+                                 "gen_ai.usage.output_tokens": execution.output_tokens or 0})
+            telemetry.record_agent_run(agent, status, time.perf_counter() - started, execution.usage_by_model)
 
 
 def _tokens(execution: AgentExecutionRecord, observer: RunObserver) -> None:
