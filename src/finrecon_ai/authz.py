@@ -23,14 +23,19 @@ class Permission(StrEnum):
     CASE_CREATE = "case:create"
     POLICY_READ = "policy:read"
     POLICY_MANAGE = "policy:manage"  # upload and replace policy documents (SRS §5.3)
+    DATA_IMPORT = "data:import"  # upload financial source files (SRS §5.1)
+    RECONCILE_RUN = "reconcile:run"
+    AUDIT_READ = "audit:read"  # SRS §5.2 (managers review audit history), §5.4 (auditors)
 
 
 ROLE_PERMISSIONS: dict[RoleName, frozenset[Permission]] = {
-    RoleName.ANALYST: frozenset({Permission.CASE_READ, Permission.CASE_WORK, Permission.POLICY_READ}),
+    RoleName.ANALYST: frozenset({Permission.CASE_READ, Permission.CASE_WORK, Permission.POLICY_READ,
+                                 Permission.DATA_IMPORT, Permission.RECONCILE_RUN}),
     RoleName.MANAGER: frozenset({Permission.CASE_READ, Permission.CASE_WORK, Permission.CASE_WORK_ANY,
-                                 Permission.CASE_ASSIGN, Permission.CASE_DECIDE, Permission.POLICY_READ}),
+                                 Permission.CASE_ASSIGN, Permission.CASE_DECIDE, Permission.POLICY_READ,
+                                 Permission.DATA_IMPORT, Permission.RECONCILE_RUN, Permission.AUDIT_READ}),
     RoleName.ADMIN: frozenset({Permission.CASE_READ, Permission.POLICY_READ, Permission.POLICY_MANAGE}),
-    RoleName.AUDITOR: frozenset({Permission.CASE_READ, Permission.POLICY_READ}),
+    RoleName.AUDITOR: frozenset({Permission.CASE_READ, Permission.POLICY_READ, Permission.AUDIT_READ}),
 }
 # The system actor runs automated steps (case creation after a reconciliation run). It cannot decide.
 SYSTEM_PERMISSIONS = frozenset({Permission.CASE_READ, Permission.CASE_CREATE})

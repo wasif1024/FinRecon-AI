@@ -34,6 +34,7 @@ from finrecon_ai.db.models import (
     Transaction,
     exception_transactions,
 )
+from finrecon_ai.errors import NotFound
 from finrecon_ai.log import get_logger
 
 log = get_logger(__name__)
@@ -59,7 +60,7 @@ class CaseError(Exception):
     pass
 
 
-class CaseNotFound(CaseError):
+class CaseNotFound(NotFound, CaseError):
     pass
 
 

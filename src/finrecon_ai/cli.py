@@ -1,5 +1,5 @@
 """Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases | policies | prompts | agents |
-investigate | workflow | approvals | pipeline."""
+investigate | workflow | approvals | pipeline | users | serve."""
 
 import argparse
 import json
@@ -145,6 +145,17 @@ def main(argv: list[str] | None = None) -> int:
                                  help="demo user deciding (the manager who started the investigation may not)")
     approval_commands.add_parser("resume", help="resume workflows whose decision was recorded but not applied")
 
+    users = commands.add_parser("users", help="manage demo tenant users")
+    user_commands = users.add_subparsers(dest="user_command", required=True)
+    user_commands.add_parser("list", help="users with their roles")
+    set_password = user_commands.add_parser("set-password", help="set a user's API password (prompted, not echoed)")
+    set_password.add_argument("email")
+    set_password.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
+
+    serve = commands.add_parser("serve", help="run the REST API")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+
     pipeline = commands.add_parser("pipeline", help="ingest -> reconcile -> open cases as one workflow")
     pipeline.add_argument("--dir", type=Path, default=Path("data/synthetic"))
 
@@ -174,6 +185,13 @@ def _setup_logging() -> None:
 def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if args.command == "prompts":
         return _prompts(args)
+
+    if args.command == "serve":
+        import uvicorn
+
+        uvicorn.run("finrecon_ai.api.app:create_app", factory=True, host=args.host, port=args.port,
+                    log_level="warning")  # our own request logs go through finrecon logging
+        return 0
 
     if args.command == "generate-data":
         dataset = generate(seed=args.seed, payments=args.payments)
@@ -219,6 +237,9 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
         if args.command == "approvals":
             return _approvals(session, tenant, args)
+
+        if args.command == "users":
+            return _users(session, tenant, args)
 
         if args.command == "pipeline":
             from finrecon_ai.workflows.case_investigation import session_unit_of_work
@@ -373,6 +394,43 @@ def _print_case_summary(case_id, state: dict, paused: bool) -> None:
             print(f"  amount {action['amount']} {action['currency']} | contact {action['contact']} | "
                   f"policy passages {len(action['policy_evidence_ids'])}"
                   + (f" | warnings: {action['warnings']}" if action["warnings"] else ""))
+
+
+def _users(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
+    from finrecon_ai.api.security import hash_password
+
+    if args.user_command == "list":
+        for user in session.scalars(select(User).where(User.tenant_id == tenant.id).order_by(User.email)):
+            roles = ",".join(sorted(r.name.value for r in user.roles))
+            print(f"{user.email:<32} {roles:<10} {'password set' if user.password_hash else 'no password'}")
+        return 0
+
+    user = session.scalar(select(User).where(User.tenant_id == tenant.id, User.email == args.email.lower()))
+    if user is None:
+        print(f"no user {args.email} in tenant {tenant.slug}", file=sys.stderr)
+        return 1
+    if args.password_stdin:
+        password = sys.stdin.readline().rstrip("\n")
+    else:
+        import getpass
+
+        password = getpass.getpass(f"New password for {user.email}: ")
+        if getpass.getpass("Repeat: ") != password:
+            print("passwords do not match", file=sys.stderr)
+            return 1
+    try:
+        user.password_hash = hash_password(password)
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    from finrecon_ai.audit import record_event
+    from finrecon_ai.db.enums import ActorType
+
+    record_event(session, tenant_id=tenant.id, event_type="user.password_set", entity_type="user", entity_id=user.id,
+                 actor_type=ActorType.SYSTEM, payload={"via": "cli"})
+    session.commit()
+    print(f"password set for {user.email}")
+    return 0
 
 
 def _approvals(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:

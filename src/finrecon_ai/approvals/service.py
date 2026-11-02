@@ -27,6 +27,7 @@ from finrecon_ai.db.enums import (
     RecommendationStatus,
 )
 from finrecon_ai.db.models import ApprovalDecision, ApprovalRequest, InvestigationEvidence, ResolutionRecommendation
+from finrecon_ai.errors import NotFound
 from finrecon_ai.log import get_logger
 
 log = get_logger(__name__)
@@ -50,6 +51,10 @@ class ApprovalError(Exception):
     pass
 
 
+class ApprovalNotFound(NotFound, ApprovalError):
+    pass
+
+
 def list_pending(session: Session, actor: Actor) -> list[ApprovalRequest]:
     actor.require(Permission.CASE_DECIDE)
     return list(session.scalars(select(ApprovalRequest)
@@ -65,7 +70,7 @@ def decide(session: Session, actor: Actor, request_id: uuid.UUID, decision: Appr
                                                            ApprovalRequest.tenant_id == actor.tenant_id)
                              .with_for_update())
     if request is None:
-        raise ApprovalError("approval request not found")
+        raise ApprovalNotFound("approval request not found")
     if request.status is not ApprovalRequestStatus.PENDING:
         raise ApprovalError(f"approval request is already {request.status}")
     if request.required_role not in actor.roles:

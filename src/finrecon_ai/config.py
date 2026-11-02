@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-small-en-v1.5"  # local fastembed model; changing it means re-indexing
     document_storage_dir: str = "storage/documents"
 
+    # API authentication. No default: the API refuses to start without a secret (fail-closed).
+    jwt_secret: str | None = None
+    jwt_ttl_minutes: int = 60
+    cors_origins: str = "http://localhost:3000"  # comma-separated; the Phase 5 dashboard
+
     log_level: str = "INFO"
     log_format: Literal["console", "json"] = "console"  # terminal output; the file is always JSON lines
     log_file: str | None = "logs/finrecon.log"  # empty string disables the file

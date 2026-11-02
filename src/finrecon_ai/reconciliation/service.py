@@ -23,6 +23,7 @@ from finrecon_ai.db.models import (
     transaction_match_items,
 )
 from finrecon_ai.reconciliation.config import DEFAULT_CONFIG, ENGINE_VERSION, ReconciliationConfig
+from finrecon_ai.errors import NotFound
 from finrecon_ai.log import get_logger
 from finrecon_ai.reconciliation.engine import Txn, reconcile
 
@@ -32,6 +33,10 @@ RECONCILABLE_BATCH_STATUSES = (ImportBatchStatus.COMPLETED, ImportBatchStatus.CO
 
 
 class ReconciliationError(Exception):
+    pass
+
+
+class BatchNotFound(NotFound, ReconciliationError):
     pass
 
 
@@ -57,7 +62,7 @@ def run_reconciliation(
         select(ImportBatch).where(ImportBatch.id.in_(batch_ids), ImportBatch.tenant_id == tenant_id)
     ).all()
     if len(batches) != len(batch_ids):
-        raise ReconciliationError("import batch not found")
+        raise BatchNotFound("import batch not found")
     not_ready = [str(b.id) for b in batches if b.status not in RECONCILABLE_BATCH_STATUSES]
     if not_ready:
         raise ReconciliationError(f"import batches not completed: {not_ready}")

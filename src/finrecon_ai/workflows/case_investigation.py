@@ -363,6 +363,30 @@ def session_unit_of_work() -> Callable[[], AbstractContextManager[Session]]:
     return unit
 
 
+CASE_RUN_LOCK = 3  # advisory-lock namespace (audit uses the single-key space, case numbering 2)
+
+
+@contextmanager
+def case_run_lock(case_id: uuid.UUID) -> Iterator[bool]:
+    """Yields True if this process may run the case's workflow now. Held on its own connection for the whole run,
+    so two API requests cannot drive the same thread at once."""
+    import zlib
+
+    from sqlalchemy import text
+
+    from finrecon_ai.db.session import get_engine
+
+    key = zlib.crc32(case_id.bytes) - 2**31
+    with get_engine().connect() as connection:
+        acquired = connection.execute(text("SELECT pg_try_advisory_lock(:ns, :key)"),
+                                      {"ns": CASE_RUN_LOCK, "key": key}).scalar()
+        try:
+            yield bool(acquired)
+        finally:
+            if acquired:
+                connection.execute(text("SELECT pg_advisory_unlock(:ns, :key)"), {"ns": CASE_RUN_LOCK, "key": key})
+
+
 def _checkpoint_url(database_url: str | None = None) -> str:
     from finrecon_ai.config import get_settings
 

@@ -32,6 +32,29 @@ every run stores a snapshot of them and every match stores which rules passed or
 The same run flags anomalies (amounts far outside a merchant's range, payment bursts) as indicators
 for review, never as fraud determinations.
 
+## REST API
+
+```bash
+uv run finrecon users set-password manager@demo.finrecon.dev     # prompted, not echoed
+uv run finrecon serve                                             # http://127.0.0.1:8000/docs
+```
+
+Log in with `POST /auth/login` (`tenant`, `email`, `password`) and send the token as `Authorization: Bearer …`.
+Tokens carry identity only; roles are read from the database on every request, so a role change or
+deactivation applies immediately. Unknown tenant, unknown user, inactive user and wrong password all return the
+same 401; five failures lock an account for 15 minutes; every login is audited. Investigations and decisions
+return `202` and continue in the background — poll `GET /cases/{id}/workflow`. Requires `JWT_SECRET` (32+
+characters) in `.env`; the API will not start without it.
+
+| Area | Endpoints |
+|---|---|
+| Auth | `POST /auth/login`, `GET /auth/me` |
+| Data | `GET /sources`, `POST /sources/{id}/imports`, `GET /imports/{id}`, `GET/POST /reconciliation/runs` |
+| Cases | `GET /cases`, `GET /cases/{id}`, `POST …/assign`, `…/transition`, `…/notes`, `…/investigate`, `GET …/workflow`, `…/audit` |
+| Approvals | `GET /approvals`, `POST /approvals/{id}/decision` |
+| Policies | `GET/POST /policies`, `GET /policies/search` |
+| Audit | `GET /audit-events`, `GET /audit-events/verify` |
+
 ## Agent workflows
 
 Investigation, Risk Analysis and Resolution agents run in a LangGraph workflow per case, checkpointed in

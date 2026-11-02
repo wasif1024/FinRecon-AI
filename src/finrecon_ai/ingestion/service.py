@@ -19,6 +19,7 @@ from finrecon_ai.db.models import FinancialSource, ImportBatch, Transaction
 from finrecon_ai.ingestion.mappings import SourceMapping
 from finrecon_ai.ingestion.normalizer import RecordRejected, fingerprint, normalize_record
 from finrecon_ai.ingestion.parsers import FileRejected, parse_file, to_json_safe
+from finrecon_ai.errors import NotFound
 from finrecon_ai.log import get_logger
 
 log = get_logger(__name__)
@@ -27,6 +28,10 @@ MAX_STORED_ERRORS = 1000
 
 
 class IngestionError(Exception):
+    pass
+
+
+class SourceNotFound(NotFound, IngestionError):
     pass
 
 
@@ -50,7 +55,7 @@ def ingest_file(
         select(FinancialSource).where(FinancialSource.id == source_id, FinancialSource.tenant_id == tenant_id)
     )
     if source is None:
-        raise IngestionError("financial source not found")
+        raise SourceNotFound("financial source not found")
     if not source.is_active:
         raise IngestionError(f"financial source {source.name!r} is inactive")
     if source.ingestion_method not in (IngestionMethod.CSV, IngestionMethod.JSON):
