@@ -40,6 +40,22 @@ uv sync
 uv run alembic upgrade head # create the database schema
 ```
 
+Or, once `.env` is filled in, start everything with one command:
+
+```bash
+scripts/start.sh            # API :8000 + dashboard :3000; Ctrl-C stops both
+scripts/start.sh --studio   # also the Agent Server for LangSmith Studio (:2024)
+scripts/start.sh --prod     # dashboard as a production build
+scripts/start.sh --check    # checks and migrations only
+```
+
+It checks that the required variables are set (`DATABASE_URL`, `QDRANT_URL`, `JWT_SECRET` of 32+ characters,
+`ANTHROPIC_API_KEY`, `LANGSMITH_API_KEY` when tracing or sandboxes are on, and `API_URL` in
+`frontend/.env.local`, which it creates if missing) without printing them; runs `uv sync` and `pnpm install`;
+starts PostgreSQL (Homebrew service) and Docker Desktop if they are down, then Qdrant; applies pending
+migrations; and refuses to start if a port is taken. With `RECOVER_ON_STARTUP=true` it warns that the API will
+finish interrupted agent runs, which calls Claude.
+
 ## Synthetic data and ingestion
 
 ```bash
