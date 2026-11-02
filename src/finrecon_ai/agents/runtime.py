@@ -193,7 +193,8 @@ def langchain_tool(tool: Tool, ctx: ToolContext) -> StructuredTool:
 
     def call(**kwargs: Any) -> str:
         try:
-            content = json.dumps(run_tool(ctx, tool, kwargs), default=str)
+            with ctx.db_lock:
+                content = json.dumps(run_tool(ctx, tool, kwargs), default=str)
         except ToolError as exc:
             raise ToolException(str(exc)) from None
         if len(content) > MAX_TOOL_RESULT_CHARS:
@@ -230,13 +231,15 @@ class ToolAuditMiddleware(AgentMiddleware):
                  "duration_ms": round((time.perf_counter() - started) * 1000, 1)}
         if self.subagent:
             entry["subagent"] = self.subagent
-        self.entries.append(entry)
         # Tool inputs can carry case data, so the log line keeps only name, outcome and timing.
         (log.warning if failed else log.info)("agent.tool_call", tool=call["name"], subagent=self.subagent,
                                               ok=not failed, error=error, duration_ms=entry["duration_ms"])
-        record_event(self.session, tenant_id=self.ctx.tenant_id, event_type="agent.tool_invoked",
-                     entity_type="agent_execution", entity_id=self.execution.id, actor_type=ActorType.AGENT,
-                     agent_execution_id=self.execution.id, payload=entry)
+        # Not held while the tool runs: `task` runs a whole subagent, whose own tools take the lock.
+        with self.ctx.db_lock:
+            self.entries.append(entry)
+            record_event(self.session, tenant_id=self.ctx.tenant_id, event_type="agent.tool_invoked",
+                         entity_type="agent_execution", entity_id=self.execution.id, actor_type=ActorType.AGENT,
+                         agent_execution_id=self.execution.id, payload=entry)
         return result
 
 

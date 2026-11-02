@@ -10,9 +10,10 @@ from finrecon_ai.agents.prompt_registry import load_prompt
 from finrecon_ai.agents.runtime import AgentFailed, run_agent
 from finrecon_ai.agents.schemas import InvestigationReport, strict_json_schema
 from finrecon_ai.agents.tools import TOOLS, ToolContext
-from finrecon_ai.db.enums import AgentExecutionStatus, AgentName
+from finrecon_ai.db.enums import AgentExecutionStatus, AgentName, ExceptionCategory
 from finrecon_ai.db.models import AuditEvent, InvestigationCase, ReconciliationException
 from tests.fakes import REPORT, FakeClient, final, reply, tool_errors, tool_use
+from tests.test_agent_tools import context
 
 SPEC = load_prompt(AgentName.INVESTIGATION)
 
@@ -56,6 +57,19 @@ def test_tool_loop_produces_validated_report(session, ctx):
     assert [m.tool_call_id for m in second if isinstance(m, ToolMessage)] == ["t1", "t2"]
 
 
+def test_parallel_tool_calls_share_the_session_safely(session, ctx):
+    """Regression: Claude often calls several tools at once and LangGraph runs them on worker threads; they all use
+    the run's one database session ("Session is already flushing" in the first live run)."""
+    names = ["get_case", "get_case_transactions", "get_match_explanation", "find_similar_cases"] * 4
+    args = {"find_similar_cases": {"category": None}}
+    client = FakeClient(reply("tool_use", *[tool_use(n, args.get(n)) for n in names]), final(REPORT))
+    result = run(session, ctx, client)
+
+    assert result.execution.status is AgentExecutionStatus.COMPLETED
+    assert len(result.execution.tool_calls) == len(names) and all(c["ok"] for c in result.execution.tool_calls)
+    assert audit_types(session, result.execution.id).count("agent.tool_invoked") == len(names)
+
+
 def test_deep_agent_harness(session, ctx):
     """Case tools and subagents from the manifest; Deep Agents' planning and scratch files; no shell, no
     general-purpose subagent."""
@@ -73,7 +87,8 @@ def test_deep_agent_harness(session, ctx):
     assert SPEC.system_text.strip()[:200] in client.calls[0]["system"]
 
 
-def test_subagent_tool_calls_are_audited_and_tracked(session, ctx):
+def test_subagent_tool_calls_are_audited_and_tracked(session, world, case_ids):
+    ctx = context(session, world[0].id, ExceptionCategory.FEE_DISCREPANCY)  # a case the engine matched
     def delegate(request):
         return reply("tool_use", tool_use("task", {"description": "find the settlement", "subagent_type":
                                                    "transaction-tracer"}))

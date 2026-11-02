@@ -6,6 +6,7 @@ ID) is remembered, so evidence the agent cites can be resolved and checked again
 """
 
 import statistics
+import threading
 import uuid
 from collections import defaultdict
 from collections.abc import Callable
@@ -55,6 +56,8 @@ class ToolContext:
     identifiers: dict[str, dict[str, str]] = field(default_factory=lambda: defaultdict(dict))
     # kind -> canonical ID -> what the tool showed (policy passages: document, section, ...)
     details: dict[str, dict[str, dict[str, Any]]] = field(default_factory=lambda: defaultdict(dict))
+    # The agent harness runs parallel tool calls on worker threads; they share this run's one session.
+    db_lock: threading.Lock = field(default_factory=threading.Lock)
 
     def remember(self, kind: str, canonical: Any, *aliases: Any, details: dict[str, Any] | None = None) -> None:
         if details is not None:
