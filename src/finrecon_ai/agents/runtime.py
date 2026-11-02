@@ -1,25 +1,37 @@
-"""Run one agent against one case: Claude tool loop, allow-listed read-only tools, structured output.
+"""Run one agent against one case as a Deep Agent (LangChain + LangGraph), with structured output.
+
+Each run builds a Deep Agent from its prompt version: Claude via ChatAnthropic, the manifest's allow-listed
+read-only tools as LangChain tools bound to this case, the manifest's subagents (delegated through Deep Agents'
+`task` tool), and Deep Agents' planning (`write_todos`) and scratch-file tools, whose files live only in this run's
+state. Shell execution and the catch-all general-purpose subagent are removed (`HARNESS_PROFILE`).
 
 Every run is recorded in agent_execution_records (prompt ref, model, tool calls, tokens, output or error) and
-audited; every tool call is audited too (FR-12). The caller commits.
+audited; every tool call, including subagents' and Deep Agents' own, is audited too (FR-12). LangSmith traces come
+from LangChain's tracer; the record keeps the trace's root run id. The caller commits.
 """
 
 import json
 import time
-
-import langsmith as ls
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, create_deep_agent, register_harness_profile
+from langchain.agents.middleware import AgentMiddleware, ModelCallLimitMiddleware, TodoListMiddleware, ToolCallRequest
+from langchain.agents.structured_output import ProviderStrategy, StructuredOutputError
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.outputs import LLMResult
+from langchain_core.tools import StructuredTool, ToolException
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.orm import Session
 
-from finrecon_ai.agents.llm import LLMClient
+from finrecon_ai.agents.llm import ChatModelFactory
 from finrecon_ai.agents.prompt_registry import PromptSpec
 from finrecon_ai.agents.schemas import OUTPUT_SCHEMAS, strict_json_schema
-from finrecon_ai.agents.tools import TOOLS, ToolContext, ToolError, run_tool
+from finrecon_ai.agents.tools import TOOLS, Tool, ToolContext, ToolError, run_tool
 from finrecon_ai.audit import record_event
 from finrecon_ai.db.enums import ActorType, AgentExecutionStatus
 from finrecon_ai.db.models import AgentExecutionRecord
@@ -29,6 +41,13 @@ from finrecon_ai.tracing import tracing_enabled
 log = get_logger(__name__)
 
 MAX_TOOL_RESULT_CHARS = 20_000
+
+# Agents investigate; they never run commands, and every subagent is declared in a prompt manifest with its own
+# tool allow-list (no general-purpose subagent inheriting all tools). Registered for Anthropic models, which is
+# what Deep Agents resolves ChatAnthropic to.
+HARNESS_PROFILE = HarnessProfile(excluded_tools=frozenset({"execute"}),
+                                 general_purpose_subagent=GeneralPurposeSubagentProfile(enabled=False))
+register_harness_profile("anthropic", HARNESS_PROFILE)
 
 
 class AgentFailed(Exception):
@@ -50,14 +69,14 @@ def run_agent(
     spec: PromptSpec,
     ctx: ToolContext,
     user_content: str,
-    client: LLMClient,
+    client: ChatModelFactory,
     parent_execution_id: uuid.UUID | None = None,
 ) -> AgentResult:
     manifest = spec.manifest
-    unknown = [name for name in manifest.tools if name not in TOOLS]
+    wanted = set(manifest.tools) | {t for s in manifest.subagents for t in s.tools}
+    unknown = sorted(wanted - TOOLS.keys())
     if unknown:
         raise ValueError(f"{spec.ref} allows unknown tools: {unknown}")
-    tools = {name: TOOLS[name] for name in manifest.tools}
     output_model = OUTPUT_SCHEMAS[manifest.output_schema]
 
     execution = AgentExecutionRecord(
@@ -69,133 +88,199 @@ def run_agent(
     session.add(execution)
     session.flush()
 
-    params: dict[str, Any] = {
-        "model": manifest.model,
-        "max_tokens": manifest.max_tokens,
-        # Static system prompt first so it caches across cases.
-        "system": [{"type": "text", "text": spec.system_text, "cache_control": {"type": "ephemeral"}}],
-        "tools": [t.definition() for t in tools.values()],
-        "output_config": {"effort": manifest.effort,
-                          "format": {"type": "json_schema", "schema": strict_json_schema(output_model)}},
-    }
-    messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
     tool_calls: list[dict[str, Any]] = []
-    with log_context(execution_id=execution.id, case_id=ctx.case.id, agent=manifest.id.value, prompt=spec.ref), \
-            ls.trace(name=f"agent:{manifest.id.value}", run_type="chain", inputs={"user_content": user_content},
-                     tags=["agent", manifest.id.value, spec.ref],
-                     metadata={"prompt": spec.ref, "case_id": str(ctx.case.id), "tenant_id": str(ctx.tenant_id),
-                               "execution_id": str(execution.id), "model": manifest.model}) as span:
-        if tracing_enabled():
-            execution.langsmith_run_id = str(span.id)  # links the execution record to its trace
-        log.info("agent.started", model=manifest.model, effort=manifest.effort, tools=len(tools))
-        result = _loop(session, spec, ctx, client, execution, tools, output_model, params, messages, tool_calls)
-        span.end(outputs={"output": result.output.model_dump(mode="json"), "tool_calls": len(tool_calls),
-                          "input_tokens": execution.input_tokens, "output_tokens": execution.output_tokens})
-        return result
+    audit = ToolAuditMiddleware(session, ctx, execution, tool_calls)
+    tools = {name: langchain_tool(TOOLS[name], ctx) for name in wanted}
+    agent = create_deep_agent(
+        model=client(manifest),
+        tools=[tools[name] for name in manifest.tools],
+        # Static system prompt first, marked so it caches across cases.
+        system_prompt=SystemMessage(content=[{"type": "text", "text": spec.system_text,
+                                              "cache_control": {"type": "ephemeral"}}]),
+        subagents=[{"name": s.name, "description": s.description, "system_prompt": spec.subagent_texts[s.name],
+                    "tools": [tools[name] for name in s.tools],
+                    "middleware": [ToolAuditMiddleware(session, ctx, execution, tool_calls, subagent=s.name),
+                                   ModelCallLimitMiddleware(run_limit=s.max_turns, exit_behavior="error")]}
+                   for s in manifest.subagents],
+        middleware=[TodoListMiddleware(), audit, ModelCallLimitMiddleware(run_limit=manifest.max_turns, exit_behavior="error")],
+        response_format=ProviderStrategy(strict_json_schema(output_model), strict=True),
+        name=f"agent:{manifest.id.value}",
+    )
 
-
-def _loop(session: Session, spec: PromptSpec, ctx: ToolContext, client: LLMClient,
-          execution: AgentExecutionRecord, tools: dict, output_model: type[BaseModel], params: dict[str, Any],
-          messages: list[dict[str, Any]], tool_calls: list[dict[str, Any]]) -> AgentResult:
-    manifest = spec.manifest
+    observer = RunObserver(manifest.model)
+    trace_id = uuid.uuid4()
+    if tracing_enabled():
+        execution.langsmith_run_id = str(trace_id)  # links the execution record to its LangSmith trace
+    config = {
+        "run_id": trace_id, "run_name": f"agent:{manifest.id.value}", "callbacks": [observer],
+        "recursion_limit": manifest.max_turns * 6 + 20,  # graph steps; model turns are capped by middleware
+        "tags": ["agent", manifest.id.value, spec.ref],
+        "metadata": {"prompt": spec.ref, "case_id": str(ctx.case.id), "tenant_id": str(ctx.tenant_id),
+                     "execution_id": str(execution.id), "model": manifest.model},
+    }
     started = time.perf_counter()
-    try:
-        for turn in range(1, manifest.max_turns + 1):
-            call_started = time.perf_counter()
-            response = client.create(messages=messages, **params)
-            _count_tokens(execution, response)
-            stop = response.stop_reason
-            usage = getattr(response, "usage", None)
-            log.info("claude.call", turn=turn, model=getattr(response, "model", manifest.model), stop_reason=stop,
-                     input_tokens=getattr(usage, "input_tokens", None),
-                     output_tokens=getattr(usage, "output_tokens", None),
-                     cache_read_tokens=getattr(usage, "cache_read_input_tokens", None),
-                     duration_ms=round((time.perf_counter() - call_started) * 1000, 1),
-                     anthropic_request_id=getattr(response, "_request_id", None))
-
-            if stop == "refusal":
-                details = getattr(response, "stop_details", None)
-                raise _Stop(f"model declined (category: {getattr(details, 'category', None)})")
-            if stop == "max_tokens":
-                raise _Stop("response hit max_tokens before finishing")
-
-            # Append the assistant turn unchanged: thinking blocks must be passed back as-is.
-            messages.append({"role": "assistant", "content": response.content})
-
-            if stop == "pause_turn":
-                continue
-            if stop == "tool_use":
-                results = [_call_tool(session, ctx, execution, tools, block, tool_calls)
-                           for block in response.content if block.type == "tool_use"]
-                messages.append({"role": "user", "content": results})
-                continue
-
-            text = "".join(b.text for b in response.content if b.type == "text")
-            try:
-                output = output_model.model_validate_json(text)
-            except ValidationError as exc:
-                raise _Stop(f"output did not match {manifest.output_schema}: {exc.error_count()} errors") from None
-            _finish(session, ctx, execution, tool_calls, AgentExecutionStatus.COMPLETED,
-                    output=output.model_dump(mode="json"))
-            log.info("agent.completed", turns=turn, tool_calls=len(tool_calls),
-                     input_tokens=execution.input_tokens, output_tokens=execution.output_tokens,
-                     duration_ms=round((time.perf_counter() - started) * 1000, 1))
-            return AgentResult(output=output, execution=execution, seen=dict(ctx.seen))
-
-        raise _Stop(f"no final answer after {manifest.max_turns} turns")
-    except _Stop as exc:
-        _finish(session, ctx, execution, tool_calls, AgentExecutionStatus.FAILED, error=str(exc))
-        log.warning("agent.failed", reason=str(exc), tool_calls=len(tool_calls))
-        raise AgentFailed(str(exc), execution) from None
-    except Exception as exc:  # API errors etc.: record, then re-raise for the caller's retry policy
-        _finish(session, ctx, execution, tool_calls, AgentExecutionStatus.FAILED,
-                error=f"{type(exc).__name__}: {exc}")
-        log.exception("agent.error", tool_calls=len(tool_calls))
-        raise
+    with log_context(execution_id=execution.id, case_id=ctx.case.id, agent=manifest.id.value, prompt=spec.ref):
+        log.info("agent.started", model=manifest.model, effort=manifest.effort, tools=len(manifest.tools),
+                 subagents=len(manifest.subagents))
+        try:
+            state = agent.invoke({"messages": [{"role": "user", "content": user_content}]}, config=config)
+            _tokens(execution, observer)
+            output = _structured_output(state, output_model, manifest.output_schema, observer)
+        except _Stop as exc:
+            _tokens(execution, observer)
+            _finish(session, ctx, execution, tool_calls, AgentExecutionStatus.FAILED, error=str(exc))
+            log.warning("agent.failed", reason=str(exc), tool_calls=len(tool_calls))
+            raise AgentFailed(str(exc), execution) from None
+        except Exception as exc:
+            _tokens(execution, observer)
+            reason = _known_failure(exc, observer)
+            if reason:
+                _finish(session, ctx, execution, tool_calls, AgentExecutionStatus.FAILED, error=reason)
+                log.warning("agent.failed", reason=reason, tool_calls=len(tool_calls))
+                raise AgentFailed(reason, execution) from None
+            # API errors etc.: record, then re-raise for the workflow's retry policy
+            _finish(session, ctx, execution, tool_calls, AgentExecutionStatus.FAILED,
+                    error=f"{type(exc).__name__}: {exc}")
+            log.exception("agent.error", tool_calls=len(tool_calls))
+            raise
+        _finish(session, ctx, execution, tool_calls, AgentExecutionStatus.COMPLETED,
+                output=output.model_dump(mode="json"))
+        log.info("agent.completed", model_calls=observer.calls, tool_calls=len(tool_calls),
+                 input_tokens=execution.input_tokens, output_tokens=execution.output_tokens,
+                 duration_ms=round((time.perf_counter() - started) * 1000, 1))
+        return AgentResult(output=output, execution=execution, seen=dict(ctx.seen))
 
 
 class _Stop(Exception):
     pass
 
 
-def _call_tool(session: Session, ctx: ToolContext, execution: AgentExecutionRecord, tools: dict, block: Any,
-               log_entries: list[dict[str, Any]]) -> dict[str, Any]:
-    started = time.perf_counter()
-    tool = tools.get(block.name)
-    error = None
-    with ls.trace(name=f"tool:{block.name}", run_type="tool", inputs={"input": block.input}) as span:
+def _structured_output(state: dict, output_model: type[BaseModel], schema_name: str,
+                       observer: "RunObserver") -> BaseModel:
+    raw = state.get("structured_response")
+    if raw is None:
+        raise _Stop(_stop_reason_message(observer) or f"no {schema_name} in the final answer")
+    try:
+        return output_model.model_validate(raw)
+    except ValidationError as exc:
+        raise _Stop(f"output did not match {schema_name}: {exc.error_count()} errors") from None
+
+
+def _known_failure(exc: Exception, observer: "RunObserver") -> str | None:
+    """Failures that end the run without a retry: the model declined, ran out of turns or of output budget."""
+    from langchain.agents.middleware.model_call_limit import ModelCallLimitExceededError
+
+    if isinstance(exc, ModelCallLimitExceededError):
+        return f"no final answer within {observer.calls} model turns"
+    if isinstance(exc, StructuredOutputError):
+        return _stop_reason_message(observer) or f"final answer was not valid structured output: {exc}"
+    return None
+
+
+def _stop_reason_message(observer: "RunObserver") -> str | None:
+    if observer.last_stop_reason == "refusal":
+        return f"model declined (category: {observer.last_refusal_category})"
+    if observer.last_stop_reason == "max_tokens":
+        return "response hit max_tokens before finishing"
+    return None
+
+
+# --- tools ---
+
+
+def langchain_tool(tool: Tool, ctx: ToolContext) -> StructuredTool:
+    """A FinRecon tool as a LangChain tool, bound to one case. Claude receives the exact strict schema."""
+
+    def call(**kwargs: Any) -> str:
         try:
-            if tool is None:
-                raise ToolError(f"tool {block.name!r} is not available to this agent")
-            content = json.dumps(run_tool(ctx, tool, block.input), default=str)
-            if len(content) > MAX_TOOL_RESULT_CHARS:
-                raise ToolError("result too large; narrow the query")
+            content = json.dumps(run_tool(ctx, tool, kwargs), default=str)
         except ToolError as exc:
-            error, content = str(exc), str(exc)
-        span.end(outputs={"content": content}, error=error)
+            raise ToolException(str(exc)) from None
+        if len(content) > MAX_TOOL_RESULT_CHARS:
+            raise ToolException("result too large; narrow the query")
+        return content
 
-    entry = {"tool": block.name, "input": block.input, "ok": error is None, "error": error,
-             "duration_ms": round((time.perf_counter() - started) * 1000, 1)}
-    log_entries.append(entry)
-    # Tool inputs can carry case data, so the log line keeps only name, outcome and timing.
-    (log.info if error is None else log.warning)("agent.tool_call", tool=block.name, ok=error is None,
-                                                  error=error, duration_ms=entry["duration_ms"])
-    record_event(session, tenant_id=ctx.tenant_id, event_type="agent.tool_invoked", entity_type="agent_execution",
-                 entity_id=execution.id, actor_type=ActorType.AGENT, agent_execution_id=execution.id, payload=entry)
-    result: dict[str, Any] = {"type": "tool_result", "tool_use_id": block.id, "content": content}
-    if error is not None:
-        result["is_error"] = True
-    return result
+    return StructuredTool.from_function(
+        func=call, name=tool.name, description=tool.description, args_schema=tool.input_model,
+        handle_tool_error=True, handle_validation_error=lambda exc: f"invalid input: {exc}",
+        extras={"provider_tool_definition": tool.definition()},
+    )
 
 
-def _count_tokens(execution: AgentExecutionRecord, response: Any) -> None:
-    usage = getattr(response, "usage", None)
-    if usage is None:
-        return
-    cached = (getattr(usage, "cache_read_input_tokens", 0) or 0) + (getattr(usage, "cache_creation_input_tokens", 0)
-                                                                    or 0)
-    execution.input_tokens = (execution.input_tokens or 0) + (usage.input_tokens or 0) + cached
-    execution.output_tokens = (execution.output_tokens or 0) + (usage.output_tokens or 0)
+class ToolAuditMiddleware(AgentMiddleware):
+    """Records and audits every tool call the agent (or one of its subagents) makes, whatever the tool."""
+
+    def __init__(self, session: Session, ctx: ToolContext, execution: AgentExecutionRecord,
+                 entries: list[dict[str, Any]], subagent: str | None = None):
+        super().__init__()
+        self.session, self.ctx, self.execution, self.entries, self.subagent = session, ctx, execution, entries, subagent
+
+    @property
+    def name(self) -> str:
+        return f"ToolAudit[{self.subagent or 'main'}]"
+
+    def wrap_tool_call(self, request: ToolCallRequest,
+                       handler: Callable[[ToolCallRequest], ToolMessage | Any]) -> ToolMessage | Any:
+        started = time.perf_counter()
+        call = request.tool_call
+        result = handler(request)
+        failed = isinstance(result, ToolMessage) and result.status == "error"
+        error = str(result.content)[:500] if failed else None
+        entry = {"tool": call["name"], "input": call.get("args", {}), "ok": not failed, "error": error,
+                 "duration_ms": round((time.perf_counter() - started) * 1000, 1)}
+        if self.subagent:
+            entry["subagent"] = self.subagent
+        self.entries.append(entry)
+        # Tool inputs can carry case data, so the log line keeps only name, outcome and timing.
+        (log.warning if failed else log.info)("agent.tool_call", tool=call["name"], subagent=self.subagent,
+                                              ok=not failed, error=error, duration_ms=entry["duration_ms"])
+        record_event(self.session, tenant_id=self.ctx.tenant_id, event_type="agent.tool_invoked",
+                     entity_type="agent_execution", entity_id=self.execution.id, actor_type=ActorType.AGENT,
+                     agent_execution_id=self.execution.id, payload=entry)
+        return result
+
+
+# --- model calls ---
+
+
+class RunObserver(BaseCallbackHandler):
+    """Counts Claude calls and tokens across the agent and its subagents, and logs each call."""
+
+    def __init__(self, model: str):
+        self.model = model
+        self.calls = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.last_stop_reason: str | None = None
+        self.last_refusal_category: str | None = None
+        self._started: dict[uuid.UUID, float] = {}
+
+    def on_chat_model_start(self, serialized: Any, messages: Any, *, run_id: uuid.UUID, **kwargs: Any) -> None:
+        self._started[run_id] = time.perf_counter()
+
+    def on_llm_end(self, response: LLMResult, *, run_id: uuid.UUID, **kwargs: Any) -> None:
+        self.calls += 1
+        message = getattr(response.generations[0][0], "message", None) if response.generations else None
+        usage = getattr(message, "usage_metadata", None) or {}
+        meta = getattr(message, "response_metadata", None) or {}
+        # LangChain's input_tokens already include cache reads and writes.
+        self.input_tokens += usage.get("input_tokens", 0) or 0
+        self.output_tokens += usage.get("output_tokens", 0) or 0
+        self.last_stop_reason = meta.get("stop_reason")
+        self.last_refusal_category = (meta.get("stop_details") or {}).get("category") \
+            if isinstance(meta.get("stop_details"), dict) else None
+        started = self._started.pop(run_id, None)
+        log.info("claude.call", turn=self.calls, model=meta.get("model_name") or meta.get("model") or self.model,
+                 stop_reason=self.last_stop_reason, input_tokens=usage.get("input_tokens"),
+                 output_tokens=usage.get("output_tokens"),
+                 cache_read_tokens=(usage.get("input_token_details") or {}).get("cache_read"),
+                 duration_ms=round((time.perf_counter() - started) * 1000, 1) if started else None,
+                 anthropic_request_id=meta.get("id"))
+
+
+def _tokens(execution: AgentExecutionRecord, observer: RunObserver) -> None:
+    execution.input_tokens = observer.input_tokens
+    execution.output_tokens = observer.output_tokens
 
 
 def _finish(session: Session, ctx: ToolContext, execution: AgentExecutionRecord, tool_calls: list,

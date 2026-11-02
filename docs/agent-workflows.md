@@ -42,6 +42,35 @@ graph TD
   fail --> finish
 ```
 
+### Inside each agent step: a Deep Agent (`agents/runtime.py`)
+
+Each agent node runs one LangChain Deep Agent, built from the active prompt version
+(`agents/prompts/<agent>/<version>/manifest.yaml`):
+
+```mermaid
+graph LR
+  node[LangGraph node<br/>investigate / assess_risk / propose_resolution] --> da[Deep Agent<br/>create_deep_agent]
+  da --> model[ChatAnthropic<br/>claude-opus-5-5, effort, fallback beta]
+  da --> tools[Case tools<br/>LangChain tools, read-only,<br/>bound to one tenant + case]
+  da --> plan[write_todos<br/>planning]
+  da --> files[scratch files<br/>run state only]
+  da --> task[task]
+  task --> sub1[subagent<br/>e.g. transaction-tracer]
+  task --> sub2[subagent<br/>e.g. policy-researcher]
+  sub1 --> tools
+  sub2 --> tools
+  da --> out[structured report<br/>validated, then verified]
+```
+
+| Agent | Subagents (own tool allow-list) |
+|---|---|
+| Investigation | `transaction-tracer` (search_transactions, get_counterparty_history, get_match_explanation), `policy-researcher` (search_policies) |
+| Risk Analysis | `pattern-analyst` (get_counterparty_history, search_transactions, find_similar_cases) |
+| Resolution | `policy-researcher` (search_policies) |
+
+Removed from the harness: `execute` (shell) and the general-purpose subagent that would inherit every tool.
+Limits: model turns per agent and per subagent (`max_turns`), tool results over 20,000 characters refused.
+
 ```bash
 uv run finrecon investigate CASE-000008                              # runs agents, pauses
 uv run finrecon approvals list
@@ -76,6 +105,8 @@ not complete. Execution runs at most once (unique execution key) and a retry ret
 | Decisions out of `awaiting_approval` only through the approval service; `resolved` only by execution | `cases/lifecycle.py` |
 | Whoever started the investigation cannot decide it; one immutable decision per request | `approvals/service.py`, DB constraint + trigger |
 | Transient API errors retried (3 attempts, backoff); other failures end the run, audited | `AGENT_RETRY`, `failed` node |
-| Each run records its exact prompt (`agent@version#hash`), tool calls and tokens | `agent_execution_records` |
-| Each run is traced in LangSmith and linked by `langsmith_run_id`; content can be hidden | `agents/runtime.py`, `tracing.py` |
+| Each run records its exact prompt (`agent@version#hash`), tool calls (subagents' included) and tokens | `agent_execution_records` |
+| Every tool call, including Deep Agents' own tools and subagents', is audited | `ToolAuditMiddleware`, `agent.tool_invoked` |
+| No shell, no catch-all subagent; scratch files live only in the run's state | `HARNESS_PROFILE`, `test_tool_abuse.py` |
+| Each run is traced in LangSmith (LangChain tracer) and linked by `langsmith_run_id`; content can be hidden | `agents/runtime.py`, `tracing.py` |
 | Prompt versions are compared on live metrics and on planted-scenario experiments | `agents/metrics.py`, `evals/` |

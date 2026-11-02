@@ -8,8 +8,9 @@ prompts/
   prompts.lock.json          # content hashes of released versions (immutable)
   _shared/                   # fragments included by several agents
   <agent>/<version>/
-    manifest.yaml            # model, effort, limits, allowed tools, output schema, changelog
+    manifest.yaml            # model, effort, limits, allowed tools, subagents, output schema, changelog
     system.md                # system prompt; may include shared fragments
+    <subagent>.md            # one prompt per subagent declared in the manifest
 ```
 
 ## Rules
@@ -22,6 +23,10 @@ prompts/
 - **System prompts are static.** No timestamps, IDs or case data in `system.md`: that keeps the prompt
   cacheable and keeps untrusted data out of instructions. Case data goes in the user message.
 - **Includes:** `{{> _shared/name.md }}` inlines a fragment. Unresolved `{{` fails loading.
-- **Tools are allow-listed** per version in the manifest; the runtime exposes nothing else to the model.
+- **Tools are allow-listed** per version in the manifest, and per subagent. Besides them the model sees only
+  the Deep Agents harness tools: `write_todos`, scratch files held in the run's state, and `task` for the
+  declared subagents (no shell, no general-purpose subagent).
+- **Subagents** are declared in the manifest (`name`, `description` the parent reads, `system` prompt file,
+  `tools`, `max_turns`). Their prompts are part of the version hash.
 - **Every agent run records** `<agent>@<version>#<hash>` in `agent_execution_records.workflow_version`,
   so any output can be traced to the exact prompt text that produced it.

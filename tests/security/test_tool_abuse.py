@@ -2,6 +2,8 @@
 
 import uuid
 
+from pathlib import Path
+
 import pytest
 from sqlalchemy import func, select
 
@@ -97,14 +99,25 @@ def test_oversized_tool_result_is_refused_not_truncated(session, ctx, monkeypatc
     from finrecon_ai.agents import runtime
 
     monkeypatch.setattr(runtime, "MAX_TOOL_RESULT_CHARS", 50)
-    from types import SimpleNamespace
+    tool = runtime.langchain_tool(TOOLS["get_case_transactions"], ctx)
+    result = tool.invoke({"type": "tool_call", "name": tool.name, "args": {}, "id": "t1"})
+    assert result.status == "error" and "too large" in result.content
 
-    from finrecon_ai.db.models import AgentExecutionRecord
 
-    execution = AgentExecutionRecord(tenant_id=ctx.tenant_id, agent_name="investigation", workflow_version="t",
-                                     input={}, tool_calls=[])
-    session.add(execution)
-    session.flush()
-    result = runtime._call_tool(session, ctx, execution, TOOLS,
-                                SimpleNamespace(id="t1", name="get_case_transactions", input={}), [])
-    assert result["is_error"] and "too large" in result["content"]
+def test_deep_agent_scratch_files_stay_in_run_state(session, ctx, tmp_path_factory, monkeypatch):
+    """Deep Agents' write_file/edit_file/delete act on files in the run's own state, never on disk or the DB."""
+    from finrecon_ai.agents.prompt_registry import load_prompt
+    from finrecon_ai.agents.runtime import run_agent
+    from finrecon_ai.db.enums import AgentName
+    from tests.fakes import REPORT, FakeClient, final, reply, tool_use
+
+    workdir = tmp_path_factory.mktemp("cwd")
+    monkeypatch.chdir(workdir)
+    write = tool_use("write_file", {"file_path": "/notes.md", "content": "scratch"})
+    client = FakeClient(reply("tool_use", write), reply("tool_use", tool_use("read_file", {"file_path": "/notes.md"})),
+                        final(REPORT))
+    result = run_agent(session, spec=load_prompt(AgentName.INVESTIGATION), ctx=ctx, user_content="Investigate.",
+                       client=client)
+    assert [c["ok"] for c in result.execution.tool_calls] == [True, True]
+    assert "scratch" in client.calls[2]["messages"][-1].content, "the run can read back its own note"
+    assert not list(workdir.iterdir()) and not Path("/notes.md").exists()

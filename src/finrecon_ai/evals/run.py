@@ -10,7 +10,7 @@ from pathlib import Path
 
 from finrecon_ai.agents.prompt_registry import load_prompt
 from finrecon_ai.db.enums import AgentName
-from finrecon_ai.evals.evaluators import CODE_EVALUATORS, make_root_cause_judge
+from finrecon_ai.evals.evaluators import CODE_EVALUATORS, judge_chat_model, make_root_cause_judge
 from finrecon_ai.evals.harness import investigate, prepare_tenant, scenario_details
 from finrecon_ai.evals.scenarios import EXPECTATIONS
 from finrecon_ai.log import get_logger
@@ -79,7 +79,7 @@ def run_experiment(scenarios: Iterable[str] | None = None,
         prompts = {agent.value: load_prompt(agent).ref for agent in
                    (AgentName.INVESTIGATION, AgentName.RISK_ANALYSIS, AgentName.RESOLUTION)}
         results = evaluate(
-            target, data=data, evaluators=[*CODE_EVALUATORS, make_root_cause_judge(llm)],
+            target, data=data, evaluators=[*CODE_EVALUATORS, make_root_cause_judge(judge_chat_model())],
             experiment_prefix=f"{prefix}-{prompts['investigation'].split('#')[0]}", max_concurrency=3,
             metadata={"prompts": prompts, "eval_tenant": str(tenant.tenant_id)},
         )

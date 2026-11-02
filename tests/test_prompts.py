@@ -22,6 +22,9 @@ def test_every_version_loads_cleanly(agent, version):
     assert "{{" not in spec.system_text and "}}" not in spec.system_text
     assert spec.ref.startswith(f"{agent.value}@{version}#")
     assert set(spec.manifest.tools) <= set(TOOLS), "manifest allows a tool that does not exist"
+    for subagent in spec.manifest.subagents:
+        assert set(subagent.tools) <= set(TOOLS), f"{subagent.name} allows a tool that does not exist"
+        assert "{{" not in spec.subagent_texts[subagent.name]
     assert spec.manifest.output_schema in OUTPUT_SCHEMAS
 
 

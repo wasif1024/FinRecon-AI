@@ -105,8 +105,11 @@ characters) in `.env`; the API will not start without it.
 
 ## Agent workflows
 
-Investigation, Risk Analysis and Resolution agents run in a LangGraph workflow per case, checkpointed in
-PostgreSQL, and pause for human approval. Agents only read; their output is verified before it is saved.
+Investigation, Risk Analysis and Resolution agents are **LangChain Deep Agents** (`deepagents`) on Claude
+(`langchain-anthropic` `ChatAnthropic`), each a step of a **LangGraph** workflow per case that is checkpointed in
+PostgreSQL and pauses for human approval. Each agent plans with `write_todos`, keeps scratch notes in its own run
+state and delegates focused research to declared subagents (for example `transaction-tracer`,
+`policy-researcher`). Agents only read; their output is verified before it is saved.
 Diagrams and controls: [docs/agent-workflows.md](docs/agent-workflows.md).
 
 ```bash
@@ -121,8 +124,10 @@ Prompts are versioned files in `src/finrecon_ai/agents/prompts/` (see the README
 ## Tracing, monitoring and evaluation
 
 **Tracing (LangSmith).** With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` set, every workflow run is one
-trace in the `LANGSMITH_PROJECT` project: the LangGraph nodes, each agent (`agent:investigation`, tagged with its
-prompt version, case and tenant), each tool call and each Claude call with tokens and latency. Each
+trace in the `LANGSMITH_PROJECT` project (*Tracing* in LangSmith), recorded by LangChain's tracer: the LangGraph
+nodes, each Deep Agent (`agent:investigation`, tagged with its prompt version, case and tenant), its subagents,
+every tool call and every `ChatAnthropic` call with tokens and latency. Evaluation runs are traced inside their
+experiment instead (*Datasets & Experiments* → `finrecon-agent-scenarios`). Each
 `agent_execution_records.langsmith_run_id` links the database record to its trace. Set `LANGSMITH_HIDE_CONTENT=true`
 to send structure, timings and tokens without inputs or outputs (use it before real customer data reaches the
 system). Tests never send traces.

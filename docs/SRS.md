@@ -1,7 +1,7 @@
 # FinRecon AI
 ## Software Requirements Specification (SRS)
 
-**Version:** 1.1  
+**Version:** 1.2  
 **Date:** November 2026  
 **Project:** FinRecon AI – Agentic Financial Reconciliation & Investigation Platform  
 **Status:** Revised Requirements Baseline
@@ -14,6 +14,7 @@
 |---|---|---|
 | 1.0 | November 2026 | Initial requirements baseline. |
 | 1.1 | November 2026 | Agent orchestration confirmed as LangGraph on Python. Redis removed from the stack. Claude API confirmed as the sole LLM provider. |
+| 1.2 | November 2026 | Agent stack made explicit: LLM agents are built with LangChain Deep Agents on LangChain (ChatAnthropic, LangChain tools) inside the LangGraph workflow; LangSmith is required for tracing, monitoring and evaluation (§7, §8, §9, §13). |
 
 ---
 
@@ -23,7 +24,7 @@ FinRecon AI is an Agentic AI-powered financial operations platform designed to a
 
 The platform will ingest financial records from multiple sources, identify matching and unmatched transactions, investigate discrepancies, retrieve supporting evidence, and generate explainable resolution recommendations.
 
-The platform will use specialized AI agents coordinated through LangGraph (Python), with deterministic financial processing services enforcing transaction integrity and business rules.
+The platform will use specialized AI agents built with LangChain Deep Agents and coordinated through LangGraph (Python), with deterministic financial processing services enforcing transaction integrity and business rules. LangSmith provides tracing, monitoring and evaluation of every agent.
 
 All financially significant operations will require explicit authorization and human approval.
 
@@ -378,6 +379,17 @@ Audit events shall be append-only at the application level, with restricted modi
 
 The platform shall use LangGraph for Python as the primary workflow orchestration framework.
 
+The LLM-based agents (Investigation, Risk Analysis, Resolution) shall be implemented as LangChain Deep Agents (`deepagents`), each run as a step of the LangGraph workflow:
+
+- **Model:** Claude through LangChain's `ChatAnthropic` (`langchain-anthropic`). Claude remains the sole LLM provider.
+- **Tools:** case tools are LangChain tools, read-only, bound to one tenant and one case, and allow-listed per prompt version.
+- **Planning and scratch space:** the Deep Agents planning tool and file tools, with files held only in the run's own state (never on disk or in the database).
+- **Subagents:** each agent may delegate focused research to subagents declared in its prompt version, each with its own tool allow-list. Shell execution and any general-purpose subagent that inherits every tool shall be disabled.
+- **Structured output:** each agent returns a schema-validated report; cited identifiers are verified against what the tools returned before anything is stored.
+- **Auditing:** every tool call, including subagents' and the harness's own tools, is recorded and audited (FR-12).
+
+The Transaction Ingestion and Reconciliation responsibilities (7.1, 7.2) are performed by deterministic LangGraph workflow nodes; no LLM is involved in moving or matching financial records.
+
 ## 7.1 Transaction Ingestion Agent
 
 Responsibilities:
@@ -467,14 +479,16 @@ A typical reconciliation workflow:
 ## Backend
 - Python 3.x.
 - FastAPI.
-- LangChain.
+- LangChain (`langchain`, `langchain-anthropic`).
+- LangChain Deep Agents (`deepagents`).
 - LangGraph.
 - Pydantic.
 - SQLAlchemy.
 
 ## AI and Agent Infrastructure
-- Claude API (Anthropic).
-- LangSmith.
+- Claude API (Anthropic), through LangChain `ChatAnthropic`.
+- LangChain Deep Agents for the LLM agents (planning, subagents, run-scoped scratch files).
+- LangSmith for tracing, agent monitoring, datasets and evaluation experiments.
 - LangGraph checkpointing.
 - Structured tool interfaces.
 - MCP integration where appropriate.
@@ -606,6 +620,7 @@ The project shall include:
 - Document ingestion.
 
 ## Agent Evaluation
+Agent evaluation shall use LangSmith datasets and experiments, with a dataset built from scenarios whose root cause is known, and shall cover:
 - Investigation accuracy.
 - Evidence retrieval relevance.
 - Policy citation correctness.
@@ -662,7 +677,7 @@ The MVP shall be considered complete when:
 
 ## Phase 3 – Agentic AI
 - LangGraph orchestration.
-- Specialist agents.
+- Specialist agents built with LangChain Deep Agents.
 - Tool integrations.
 - Policy document ingestion.
 - Qdrant semantic retrieval.

@@ -18,7 +18,7 @@ from finrecon_ai.evals.scenarios import EXPECTATIONS
 from finrecon_ai.policies.embedding import HashingEmbedder
 from finrecon_ai.policies.store import PolicyStore
 from tests.fakes import REPORT, AgentScripts, FakeClient, final, reply
-from tests.test_agent_runtime import run
+from tests.test_agent_runtime import run as run_investigation
 from tests.test_workflows import investigation_steps, resolution_steps
 
 
@@ -93,19 +93,23 @@ def test_no_fraud_determination(text, score):
 
 
 def test_root_cause_judge():
-    verdict = SimpleNamespace(type="text", text=json.dumps({"reasoning": "Names the fee.", "matches_root_cause": True}))
-    llm = FakeClient(reply("end_turn", verdict), reply("refusal"))
-    judge = ev.make_root_cause_judge(llm)
+    verdict = json.dumps({"reasoning": "Names the fee.", "matches_root_cause": True})
+    client = FakeClient(reply("end_turn", verdict), reply("refusal"))
+    judge = ev.make_root_cause_judge(client(None))
     run, example = _pair({"completed": True, "summary": "Settlement fee higher.", "findings": []},
                          {"root_cause": "Higher fee at settlement."})[0]
 
     assert judge(run, example) == {"score": 1, "comment": "Names the fee."}
-    request = llm.calls[0]
-    assert request["output_config"]["format"]["schema"] == ev.JUDGE_SCHEMA
-    assert "<root_cause>Higher fee at settlement.</root_cause>" in request["messages"][0]["content"]
+    assert "<root_cause>Higher fee at settlement.</root_cause>" in client.calls[0]["messages"][0].content
+    assert ev.JUDGE_SYSTEM in client.calls[0]["system"]
     assert judge(run, example)["score"] is None, "a declined grade is missing, not a failure"
     not_run = _pair({"completed": False}, {"root_cause": "x"})[0]
-    assert judge(*not_run)["score"] is None and len(llm.calls) == 2, "no judge call for incomplete runs"
+    assert judge(*not_run)["score"] is None and len(client.calls) == 2, "no judge call for incomplete runs"
+
+
+def test_judge_model_requests_structured_grade():
+    model = ev.judge_chat_model()
+    assert model.output_config["format"]["schema"] == ev.JUDGE_SCHEMA and model.output_config["effort"] == "low"
 
 
 def test_dataset_examples_cover_every_scenario_with_planted_details():
@@ -124,7 +128,7 @@ def test_execution_links_to_its_trace_only_when_tracing(session, world, case_ids
     case = session.get(InvestigationCase, case_ids[0])
     ctx = ToolContext(session=session, tenant_id=world[0].id, case=case,
                       exception=session.get(ReconciliationException, case.exception_id))
-    assert run(session, ctx, FakeClient(final(REPORT))).execution.langsmith_run_id is None
+    assert run_investigation(session, ctx, FakeClient(final(REPORT))).execution.langsmith_run_id is None
 
     monkeypatch.setattr(runtime, "tracing_enabled", lambda: True)
-    assert run(session, ctx, FakeClient(final(REPORT))).execution.langsmith_run_id
+    assert run_investigation(session, ctx, FakeClient(final(REPORT))).execution.langsmith_run_id

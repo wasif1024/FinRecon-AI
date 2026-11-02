@@ -9,7 +9,8 @@ import json
 import re
 from typing import Any
 
-from finrecon_ai.agents.llm import LLMClient
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage, SystemMessage
 
 FRAUD_CLAIM = re.compile(r"\b(fraudulent|committed fraud|is fraud|was fraud|confirmed fraud)\b", re.IGNORECASE)
 NEGATED = re.compile(r"\b(not|no|without|cannot|never)\b[^.]{0,40}\bfraud", re.IGNORECASE)
@@ -92,27 +93,38 @@ JUDGE_SCHEMA = {
 }
 
 
-def make_root_cause_judge(llm: LLMClient, model: str = "claude-opus-5-5"):
-    """LLM-as-judge: does the agents' explanation identify the planted root cause? Uses Claude, the project's model."""
+def judge_chat_model(model: str = "claude-opus-5-5") -> BaseChatModel:
+    """Claude (the project's model) via LangChain, with the grade as structured output."""
+    from langchain_anthropic import ChatAnthropic
+
+    from finrecon_ai.agents.llm import FALLBACK_BETA
+    from finrecon_ai.config import get_settings
+
+    api_key = get_settings().anthropic_api_key
+    return ChatAnthropic(model=model, max_tokens=4000, betas=[FALLBACK_BETA], model_kwargs={"fallbacks": "default"},
+                         output_config={"effort": "low", "format": {"type": "json_schema", "schema": JUDGE_SCHEMA}},
+                         **({"api_key": api_key} if api_key else {}))
+
+
+def make_root_cause_judge(model: BaseChatModel):
+    """LLM-as-judge: does the agents' explanation identify the planted root cause?"""
 
     def root_cause_identified(run, example) -> dict:
-        out, ref = _outputs(run), _outputs(example)
         if skipped := _not_graded(run):
             return skipped
+        out, ref = _outputs(run), _outputs(example)
         investigation = {
             "findings": out.get("findings", []), "recommendation": out.get("resolution_type"),
             "summary": out.get("summary"), "rationale": out.get("rationale"),
         }
-        response = llm.create(
-            model=model, max_tokens=4000, system=JUDGE_SYSTEM,
-            output_config={"effort": "low", "format": {"type": "json_schema", "schema": JUDGE_SCHEMA}},
-            messages=[{"role": "user", "content": (
-                f"<root_cause>{ref.get('root_cause')}</root_cause>\n"
-                f"<investigation>{json.dumps(investigation, ensure_ascii=False)}</investigation>")}],
-        )
-        if response.stop_reason == "refusal":
+        response = model.invoke([
+            SystemMessage(content=JUDGE_SYSTEM),
+            HumanMessage(content=f"<root_cause>{ref.get('root_cause')}</root_cause>\n"
+                                 f"<investigation>{json.dumps(investigation, ensure_ascii=False)}</investigation>"),
+        ])
+        if response.response_metadata.get("stop_reason") == "refusal":
             return {"score": None, "comment": "judge declined"}
-        grade = json.loads(next(b.text for b in response.content if b.type == "text"))
+        grade = json.loads(response.text)
         return {"score": 1 if grade["matches_root_cause"] else 0, "comment": grade["reasoning"]}
 
     return root_cause_identified

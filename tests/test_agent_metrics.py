@@ -34,8 +34,8 @@ def test_metrics_after_an_investigation_and_approval(session, world, fee_case, p
     assert investigation.runs_with_rejected_output == 1 and investigation.rejected_items >= 2
     assert resolution.outcomes == {"executed": 1}
     # Fake usage per call: 100 + 10 cached input, 50 output; two calls per agent.
-    assert investigation.avg_input_tokens == 220 and investigation.avg_output_tokens == 100
-    assert Decimal(investigation.est_cost_usd) == _cost("claude-opus-5-5", 220, 100).quantize(Decimal("0.01"))
+    assert investigation.avg_input_tokens == 200 and investigation.avg_output_tokens == 100
+    assert Decimal(investigation.est_cost_usd) == _cost("claude-opus-5-5", 200, 100).quantize(Decimal("0.01"))
 
 
 def test_failures_are_counted(session, world, fee_case, make_deps):

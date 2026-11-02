@@ -3,7 +3,7 @@
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
 from typing import Literal
@@ -23,6 +23,18 @@ class PromptError(Exception):
     pass
 
 
+class SubagentManifest(BaseModel):
+    """A Deep Agents subagent the agent may delegate to through the `task` tool, with its own tool allow-list."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    description: str  # what the parent agent reads when deciding to delegate
+    system: str  # prompt file in the version folder
+    tools: tuple[str, ...]
+    max_turns: int = 6
+
+
 class Manifest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -37,6 +49,7 @@ class Manifest(BaseModel):
     system: str
     output_schema: str
     tools: tuple[str, ...]
+    subagents: tuple[SubagentManifest, ...] = ()
     changelog: tuple[dict[str, str], ...] = ()
 
 
@@ -44,7 +57,8 @@ class Manifest(BaseModel):
 class PromptSpec:
     manifest: Manifest
     system_text: str
-    sha256: str  # over manifest + fully resolved system text
+    sha256: str  # over manifest + fully resolved system and subagent prompts
+    subagent_texts: dict[str, str] = field(default_factory=dict)
 
     @property
     def ref(self) -> str:
@@ -72,11 +86,20 @@ def load_prompt(agent: AgentName, version: str | None = None) -> PromptSpec:
     if manifest.id != agent or manifest.version != version:
         raise PromptError(f"{manifest_path} declares {manifest.id}@{manifest.version}")
 
-    system_text = _resolve_includes((folder / manifest.system).read_text(), depth=0).strip() + "\n"
-    if "{{" in system_text:
-        raise PromptError(f"{agent}@{version}: unresolved template marker in system prompt")
-    digest = hashlib.sha256((raw_manifest + "\0" + system_text).encode()).hexdigest()
-    return PromptSpec(manifest=manifest, system_text=system_text, sha256=digest)
+    system_text = _load_text(folder / manifest.system, f"{agent}@{version}")
+    subagent_texts = {s.name: _load_text(folder / s.system, f"{agent}@{version}/{s.name}") for s in manifest.subagents}
+    if len(subagent_texts) != len(manifest.subagents):
+        raise PromptError(f"{agent}@{version}: duplicate subagent names")
+    hashed = "\0".join([raw_manifest, system_text, *(subagent_texts[s.name] for s in manifest.subagents)])
+    digest = hashlib.sha256(hashed.encode()).hexdigest()
+    return PromptSpec(manifest=manifest, system_text=system_text, sha256=digest, subagent_texts=subagent_texts)
+
+
+def _load_text(path: Path, label: str) -> str:
+    text = _resolve_includes(path.read_text(), depth=0).strip() + "\n"
+    if "{{" in text:
+        raise PromptError(f"{label}: unresolved template marker in prompt")
+    return text
 
 
 def all_versions() -> list[tuple[AgentName, str]]:

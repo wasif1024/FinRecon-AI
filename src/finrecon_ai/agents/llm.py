@@ -1,34 +1,44 @@
-"""Thin seam between the agent runtime and the Claude API, so tests can script responses."""
+"""Chat models for the agents: LangChain's ChatAnthropic, configured per prompt version.
 
-from typing import Any, Protocol
+The seam is a factory (manifest -> chat model), so tests substitute a scripted LangChain chat model and the agent
+harness above it (Deep Agents, LangChain tools, LangGraph) runs unchanged.
+"""
 
-import anthropic
+from typing import Protocol
 
-# Re-run a classifier decline on Anthropic's recommended model for that refusal category.
+from langchain_core.language_models import BaseChatModel
+
+from finrecon_ai.agents.prompt_registry import Manifest
+
+# Re-run a classifier decline on Anthropic's recommended model for that refusal category. ChatAnthropic sends
+# requests with `betas` through client.beta.messages.create.
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
-class LLMClient(Protocol):
-    def create(self, **params: Any) -> Any:
-        """Same parameters as client.beta.messages.create; returns a Message-like object."""
+class ChatModelFactory(Protocol):
+    def __call__(self, manifest: Manifest) -> BaseChatModel:
+        """A chat model configured for one prompt version (model, effort, output budget)."""
         ...
 
 
-class AnthropicClient:
-    def __init__(self, client: anthropic.Anthropic | None = None):
-        from langsmith.wrappers import wrap_anthropic
+def anthropic_chat_model(manifest: Manifest, api_key: str | None = None) -> BaseChatModel:
+    from langchain_anthropic import ChatAnthropic
 
-        # Credentials resolve from ANTHROPIC_API_KEY (loaded from .env by Settings) or an `ant auth` profile.
-        # wrap_anthropic records each call as an LLM span (model, tokens, latency) when tracing is on; no-op otherwise.
-        self._client = wrap_anthropic(client or anthropic.Anthropic())
+    return ChatAnthropic(
+        model=manifest.model,
+        max_tokens=manifest.max_tokens,
+        output_config={"effort": manifest.effort},
+        betas=[FALLBACK_BETA],
+        model_kwargs={"fallbacks": "default"},
+        max_retries=2,  # the workflow's RetryPolicy retries the whole agent step on top of this
+        # Credentials resolve from ANTHROPIC_API_KEY (loaded from .env by Settings) when not passed.
+        **({"api_key": api_key} if api_key else {}),
+    )
 
-    def create(self, **params: Any) -> Any:
-        return self._client.beta.messages.create(betas=[FALLBACK_BETA], fallbacks="default", **params)
 
-
-def default_client() -> LLMClient:
+def default_client() -> ChatModelFactory:
     from finrecon_ai.config import get_settings
 
-    settings = get_settings()
-    return AnthropicClient(anthropic.Anthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key
-                           else None)
+    api_key = get_settings().anthropic_api_key or None
+    return lambda manifest: anthropic_chat_model(manifest, api_key)
+

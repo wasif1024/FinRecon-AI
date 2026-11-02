@@ -21,7 +21,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, RetryPolicy, interrupt
 from sqlalchemy.orm import Session
 
-from finrecon_ai.agents.llm import LLMClient
+from finrecon_ai.agents.llm import ChatModelFactory
 from finrecon_ai.agents.persistence import persist_findings, persist_recommendation
 from finrecon_ai.agents.prompt_registry import load_prompt
 from finrecon_ai.agents.runtime import AgentFailed, run_agent
@@ -73,7 +73,7 @@ class CaseState(TypedDict, total=False):
 @dataclass(frozen=True)
 class WorkflowDeps:
     unit_of_work: Callable[[], AbstractContextManager[Session]]
-    llm: LLMClient
+    llm: ChatModelFactory
     policy_store: PolicyStore | None
 
 

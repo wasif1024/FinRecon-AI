@@ -14,7 +14,7 @@ from typing import Any
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import select
 
-from finrecon_ai.agents.llm import LLMClient
+from finrecon_ai.agents.llm import ChatModelFactory
 from finrecon_ai.authz import Actor, load_actor
 from finrecon_ai.cases.service import create_cases_for_run
 from finrecon_ai.cli import DEMO_SOURCES
@@ -119,7 +119,7 @@ def scenario_details(manifest: dict, scenario: str) -> dict[str, Any]:
     return entry.get("details", {})
 
 
-def investigate(unit_of_work, llm: LLMClient, store: PolicyStore, tenant: EvalTenant, scenario: str) -> dict[str, Any]:
+def investigate(unit_of_work, llm: ChatModelFactory, store: PolicyStore, tenant: EvalTenant, scenario: str) -> dict[str, Any]:
     """Run the real workflow on the scenario's case and collect what the evaluators need."""
     case_id = tenant.cases[scenario]
     with unit_of_work() as session:
