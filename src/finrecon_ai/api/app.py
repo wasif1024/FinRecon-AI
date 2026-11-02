@@ -124,6 +124,18 @@ def _handler(status_code: int):
     return handle
 
 
+def _warn_if_owner_login() -> None:
+    from finrecon_ai.db.roles import report
+    from finrecon_ai.db.session import get_engine
+
+    with get_engine().connect() as connection:
+        login = report(connection)
+    if not login.safe_for_application:
+        log.warning("db.application_login_not_restricted", user=login.user, owned_tables=login.owned_tables,
+                    superuser=login.superuser, bypass_rls=login.bypass_rls,
+                    hint="connect as a role that owns nothing: finrecon db grant-app-role (README)")
+
+
 def default_runtime(settings: Settings) -> Runtime:
     from finrecon_ai.agents.llm import default_client
     from finrecon_ai.agents.workspace import default_workspaces
@@ -137,6 +149,7 @@ def default_runtime(settings: Settings) -> Runtime:
     )
 
     ensure_checkpoint_tables()  # at startup, before any request opens a transaction
+    _warn_if_owner_login()
     unit_of_work = session_unit_of_work()
     store = cache(default_store)
     llm = cache(default_client)

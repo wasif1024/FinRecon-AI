@@ -19,7 +19,7 @@ from typing import Any, TypedDict
 import anthropic
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, RetryPolicy, interrupt
-from sqlalchemy import select
+from sqlalchemy import column, func, select
 from sqlalchemy.orm import Session
 
 from finrecon_ai.agents.llm import ChatModelFactory
@@ -41,7 +41,7 @@ from finrecon_ai.db.enums import (
     RoleName,
 )
 from finrecon_ai.db.models import ApprovalRequest, InvestigationCase, ReconciliationException, ResolutionRecommendation
-from finrecon_ai.db.tenancy import bind_tenant, bypass_rls
+from finrecon_ai.db.tenancy import bind_tenant
 from finrecon_ai.log import get_logger, log_context
 from finrecon_ai.policies.store import PolicyStore
 
@@ -163,7 +163,10 @@ def resume_case(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID, decis
     service: runs started by the API or CLI are in this database's checkpoints; runs started on the Agent Server
     (Studio) are resumed there."""
     with deps.unit_of_work() as session:
-        bypass_rls(session)  # the decision was authorised by the approval service; this only finds the thread
+        # The decision was authorised by the approval service; this only finds the thread, in the case's tenant.
+        tenant_id = session.scalar(select(func.finrecon_case_tenant(case_id)))
+        if tenant_id is not None:
+            bind_tenant(session, tenant_id)
         thread = session.scalar(select(InvestigationCase.workflow_thread_id)
                                 .where(InvestigationCase.id == case_id))
     if thread and thread != thread_id_for(case_id):
@@ -246,10 +249,9 @@ def recover_case(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID) -> W
 def interrupted_cases(deps: WorkflowDeps, checkpointer: Any) -> list[uuid.UUID]:
     """Cases whose workflow stopped mid-way, across tenants (the recovery sweep runs as the system)."""
     with deps.unit_of_work() as session:
-        bypass_rls(session)
-        candidates = session.scalars(select(InvestigationCase.id).where(
-            InvestigationCase.status == CaseStatus.INVESTIGATING,
-            InvestigationCase.workflow_thread_id.like("case:%"))).all()  # Agent Server runs recover there
+        # A database function answers this one cross-tenant question (migration 0007); Agent Server runs
+        # recover there.
+        candidates = session.scalars(select(column("case_id")).select_from(func.finrecon_interrupted_cases())).all()
     graph = build_case_graph(deps, checkpointer)
     return [case_id for case_id in candidates
             if set(graph.get_state({"configurable": {"thread_id": thread_id_for(case_id)}}).next or ())
@@ -546,15 +548,34 @@ def _checkpoint_url(database_url: str | None = None) -> str:
 
 
 def ensure_checkpoint_tables(database_url: str | None = None) -> None:
-    """Create or migrate LangGraph's checkpoint tables (Alembic leaves them alone).
+    """Create or migrate LangGraph's checkpoint tables (Alembic leaves them alone), as the table owner.
 
-    Call before opening any other transaction: LangGraph builds its indexes CONCURRENTLY, which waits for every
-    open transaction on the database to finish.
+    When the application has its own login (MIGRATION_DATABASE_URL set), that login cannot create tables:
+    `finrecon db migrate` sets them up, and this only checks they are current. Call before opening any other
+    transaction: LangGraph builds its indexes CONCURRENTLY, which waits for every open transaction to finish.
     """
     from langgraph.checkpoint.postgres import PostgresSaver
 
+    from finrecon_ai.config import get_settings
+
+    if database_url is None and get_settings().migration_database_url:
+        if not checkpoint_tables_current():
+            raise RuntimeError("LangGraph's checkpoint tables are missing or out of date: run `finrecon db migrate`")
+        return
     with PostgresSaver.from_conn_string(_checkpoint_url(database_url)) as saver:
         saver.setup()
+
+
+def checkpoint_tables_current(database_url: str | None = None) -> bool:
+    from langgraph.checkpoint.postgres import PostgresSaver
+    from psycopg import connect, errors
+
+    with connect(_checkpoint_url(database_url)) as connection:
+        try:
+            row = connection.execute("SELECT max(v) FROM checkpoint_migrations").fetchone()
+        except errors.UndefinedTable:
+            return False
+    return row is not None and row[0] == len(PostgresSaver.MIGRATIONS) - 1
 
 
 @contextmanager

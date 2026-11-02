@@ -9,7 +9,8 @@ from finrecon_ai.db.base import Base
 
 config = context.config
 if not config.get_main_option("sqlalchemy.url"):  # tests set their own URL
-    config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
+    # As the owner: the application's own login may not change the schema (db/roles.py).
+    config.set_main_option("sqlalchemy.url", get_settings().owner_database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     # Keep the application's loggers working when migrations run in-process (tests, app startup).

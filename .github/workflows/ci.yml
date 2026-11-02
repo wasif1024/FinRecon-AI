@@ -21,8 +21,8 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      # The suite migrates and uses <database>_test. It connects as a non-superuser that owns the tables, as the
-      # app does: superusers bypass row-level security, which the tenancy tests check.
+      # The suite migrates and uses <database>_test as the owner (a non-superuser: superusers bypass row-level
+      # security), and runs API requests as the application role finrecon_app via SET ROLE (tests/conftest.py).
       DATABASE_URL: postgresql+psycopg://finrecon:finrecon@localhost:5432/finrecon
       JWT_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
       # No real keys: the tests never call Claude, send traces or create sandboxes.
@@ -39,6 +39,8 @@ jobs:
         run: |
           psql -h localhost -U postgres -c "CREATE ROLE finrecon LOGIN PASSWORD 'finrecon'"
           psql -h localhost -U postgres -c "CREATE DATABASE finrecon_test OWNER finrecon"
+          psql -h localhost -U postgres -c "CREATE ROLE finrecon_app LOGIN PASSWORD 'finrecon_app' NOBYPASSRLS"
+          psql -h localhost -U postgres -c "GRANT finrecon_app TO finrecon"
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run langgraph validate

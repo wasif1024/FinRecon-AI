@@ -27,8 +27,8 @@ os.environ["LANGSMITH_TRACING"] = "false"  # tests never send traces to LangSmit
 
 @pytest.fixture(scope="session")
 def engine() -> Iterator[Engine]:
-    """Migrated <dbname>_test database. Integration tests skip if it is unreachable."""
-    url = make_url(get_settings().database_url)
+    """Migrated <dbname>_test database, as the table owner. Integration tests skip if it is unreachable."""
+    url = make_url(get_settings().owner_database_url)
     url = url.set(database=f"{url.database}_test")
     engine = create_engine(url)
     try:
@@ -46,6 +46,25 @@ def engine() -> Iterator[Engine]:
     ensure_checkpoint_tables(url.render_as_string(hide_password=False))  # before any test transaction opens
     yield engine
     engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def app_role(engine: Engine) -> str | None:
+    """The application's database role (TEST_APP_DB_ROLE, default finrecon_app), granted its rights on the test
+    database, if it exists and the owner may SET ROLE to it; otherwise None. API tests then run every request as
+    it, with the privileges the API really has. CI creates it; locally see README (Database logins)."""
+    from sqlalchemy import text
+
+    from finrecon_ai.db.roles import grant_app_role
+
+    role = os.environ.get("TEST_APP_DB_ROLE", "finrecon_app")
+    with engine.begin() as connection:
+        usable = connection.execute(text("SELECT pg_has_role(current_user, oid, 'MEMBER') FROM pg_roles "
+                                         "WHERE rolname = :role"), {"role": role}).scalar()
+        if not usable:
+            return None
+        grant_app_role(connection, role)
+    return role
 
 
 @pytest.fixture

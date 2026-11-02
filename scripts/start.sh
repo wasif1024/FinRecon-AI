@@ -116,16 +116,17 @@ fi
 docker compose up -d --wait qdrant >/dev/null 2>&1 || fail "Qdrant did not become healthy (docker compose logs qdrant)"
 ok "Qdrant is healthy"
 
-# --- migrations ---
+# --- migrations and logins ---
 step "Database migrations"
-current=$(uv run --frozen alembic current 2>/dev/null | awk '{print $1}' | tail -1)
-head=$(uv run --frozen alembic heads 2>/dev/null | awk '{print $1}' | tail -1)
-if [[ "$current" == "$head" ]]; then
-  ok "up to date ($head)"
+# As the owner (MIGRATION_DATABASE_URL): pending migrations, LangGraph's checkpoint tables, and the application
+# role's rights. Idempotent; prints what it applied.
+migrate_log=$(uv run --frozen finrecon db migrate 2>&1) || { echo "$migrate_log" >&2; fail "finrecon db migrate failed"; }
+applied=$(printf '%s\n' "$migrate_log" | sed -n 's/.*Running upgrade \(.*\)$/\1/p')
+if [[ -n "$applied" ]]; then printf '%s\n' "$applied" | while read -r line; do ok "applied $line"; done; else ok "schema up to date"; fi
+if uv run --frozen finrecon db check >/dev/null 2>&1; then
+  ok "the API's login reads and writes rows only"
 else
-  warn "upgrading ${current:-empty database} -> $head"
-  uv run --frozen alembic upgrade head
-  ok "migrated to $head"
+  warn "DATABASE_URL owns the tables: give the API its own role (README, Database logins)"
 fi
 
 if $CHECK_ONLY; then

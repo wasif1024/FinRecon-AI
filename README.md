@@ -37,7 +37,7 @@ Requires Python 3.13, [uv](https://docs.astral.sh/uv/) and PostgreSQL 13+.
 ```bash
 cp .env.example .env        # fill in values
 uv sync
-uv run alembic upgrade head # create the database schema
+uv run finrecon db migrate  # create the database schema (see Database logins)
 ```
 
 Or, once `.env` is filled in, start everything with one command:
@@ -353,12 +353,35 @@ Models live in `src/finrecon_ai/db/models/`, migrations in `migrations/versions/
 
 ```bash
 uv run alembic revision --autogenerate -m "describe change"   # after editing models
-uv run alembic upgrade head
+uv run finrecon db migrate                                    # migrations + checkpoint tables + app role rights
 uv run alembic check                                          # models and DB in sync?
 ```
+
+### Database logins
+
+The API connects as a role that owns nothing (`DATABASE_URL`); a second login owns the tables and runs migrations
+(`MIGRATION_DATABASE_URL`). The application role can read and write rows, and nothing else: it cannot alter or drop
+tables, switch row-level security off, change the security functions, rewrite the append-only audit trail and
+decisions, or read across tenants, even by setting the RLS bypass, which now counts only for the owner (migration
+0007). The two cross-tenant questions the application has (a case's tenant, interrupted runs) are database
+functions that answer only those.
+
+One-time setup, by a database administrator (locally, the Homebrew superuser is your macOS user):
+
+```sql
+CREATE ROLE finrecon_app LOGIN PASSWORD '<a long random password>';
+GRANT finrecon_app TO finrecon;   -- only so the tests can SET ROLE to it
+```
+
+Then set `DATABASE_URL` to `finrecon_app` and `MIGRATION_DATABASE_URL` to the owner (see `.env.example`) and run
+`uv run finrecon db migrate`, which grants the role its rights, including on tables later migrations add.
+`uv run finrecon db check` reports what the `DATABASE_URL` login could do beyond rows; the API logs
+`db.application_login_not_restricted` at startup if it is the owner, a superuser or has `BYPASSRLS`. Without
+`MIGRATION_DATABASE_URL`, one login does both, as before.
 
 Notes:
 - Money is `NUMERIC(19,4)`, always stored with an ISO-4217 currency code.
 - Enums are stored as `VARCHAR` + `CHECK` constraints, so adding a value is a normal migration.
 - `audit_events` and `approval_decisions` are append-only: a trigger rejects `UPDATE`, `DELETE` and `TRUNCATE`.
-- LangGraph checkpoint tables are created by `PostgresSaver.setup()`, not by Alembic.
+- LangGraph checkpoint tables are created by `PostgresSaver.setup()`, not by Alembic; `finrecon db migrate` runs it
+  as the owner, and with a separate application login the API only checks they are current.

@@ -168,6 +168,15 @@ def main(argv: list[str] | None = None) -> int:
     pipeline = commands.add_parser("pipeline", help="ingest -> reconcile -> open cases as one workflow")
     pipeline.add_argument("--dir", type=Path, default=Path("data/synthetic"))
 
+    db = commands.add_parser("db", help="database schema and logins")
+    db_commands = db.add_subparsers(dest="db_command", required=True)
+    db_commands.add_parser("migrate", help="as the owner: migrations, LangGraph checkpoint tables, and the "
+                           "application role's rights (when DATABASE_URL is its own login)")
+    db_grant = db_commands.add_parser("grant-app-role", help="as the owner: give a role exactly the application's "
+                                      "rights (rows only; no schema changes, no RLS bypass)")
+    db_grant.add_argument("role", nargs="?", help="default: the user in DATABASE_URL")
+    db_commands.add_parser("check", help="what the DATABASE_URL login could do beyond reading and writing rows")
+
     sandboxes = commands.add_parser("sandboxes", help="the LangSmith sandbox each case's agents work in")
     sandbox_commands = sandboxes.add_subparsers(dest="sandbox_command", required=True)
     sandbox_commands.add_parser("list", help="case sandboxes and their status")
@@ -203,6 +212,58 @@ def main(argv: list[str] | None = None) -> int:
         return code
 
 
+def _db(args: argparse.Namespace) -> int:
+    from sqlalchemy import create_engine
+
+    from finrecon_ai.config import get_settings
+    from finrecon_ai.db.roles import RoleError, grant_app_role, login_of, report
+
+    settings = get_settings()
+    owner_url, app_url = settings.owner_database_url, settings.database_url
+
+    if args.db_command == "check":
+        engine = create_engine(app_url)
+        with engine.connect() as connection:
+            login = report(connection)
+        engine.dispose()
+        problems = [text for flag, text in ((login.superuser, "is a superuser"),
+                                            (login.bypass_rls, "has BYPASSRLS"),
+                                            (login.owned_tables, f"owns {login.owned_tables} tables")) if flag]
+        if not problems:
+            print(f"DATABASE_URL logs in as {login.user}: rows only (no schema changes, no RLS bypass)")
+            return 0
+        print(f"DATABASE_URL logs in as {login.user}, which {', '.join(problems)}: it could change the schema or "
+              "read across tenants. Create an application role and set MIGRATION_DATABASE_URL (see README).")
+        return 1
+
+    role = getattr(args, "role", None) or (login_of(app_url) if login_of(app_url) != login_of(owner_url) else None)
+    if args.db_command == "migrate":
+        from alembic import command
+        from alembic.config import Config
+
+        from finrecon_ai.workflows.case_investigation import ensure_checkpoint_tables
+
+        command.upgrade(Config("alembic.ini"), "head")
+        ensure_checkpoint_tables(owner_url)
+        print("schema and checkpoint tables are current")
+    elif role is None:
+        print("give a role, or set DATABASE_URL to the application's login and MIGRATION_DATABASE_URL to the owner's")
+        return 2
+    if role is None:  # migrate with one login for both: nothing to grant
+        return 0
+    engine = create_engine(owner_url)
+    try:
+        with engine.begin() as connection:
+            grant_app_role(connection, role)
+    except RoleError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        engine.dispose()
+    print(f"{role}: rows only on every table (append-only tables: insert and read), including future tables")
+    return 0
+
+
 def _setup_logging() -> None:
     from finrecon_ai.config import get_settings
 
@@ -222,6 +283,9 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
     if args.command == "eval":
         return _eval(args)
+
+    if args.command == "db":
+        return _db(args)
 
     if args.command == "sandboxes":
         from finrecon_ai.agents.workspace import LangSmithWorkspaces

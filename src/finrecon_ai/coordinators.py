@@ -25,7 +25,7 @@ from finrecon_ai.cases.service import list_cases
 from finrecon_ai.config import get_settings
 from finrecon_ai.db.enums import CaseStatus, ExceptionCategory
 from finrecon_ai.db.models import InvestigationCase, ReconciliationException, Tenant, User
-from finrecon_ai.db.tenancy import bypass_rls
+from finrecon_ai.db.tenancy import bind_tenant
 from finrecon_ai.workflows.case_investigation import (
     STARTABLE,
     WorkflowDeps,
@@ -47,8 +47,9 @@ def studio_actor(session, tenant_slug: str | None = None) -> Actor:
     """The user Agent Server runs act as (development only; see agent_server): STUDIO_ACTOR_EMAIL in
     STUDIO_TENANT_SLUG, or in `tenant_slug` (evaluation tenants have a user with that email)."""
     settings = get_settings()
-    bypass_rls(session)  # finding the configured tenant and user; everything after runs tenant-scoped
     tenant = session.scalar(select(Tenant).where(Tenant.slug == (tenant_slug or settings.studio_tenant_slug)))
+    if tenant is not None:
+        bind_tenant(session, tenant.id)  # the user lookup and everything after run tenant-scoped
     user = tenant and session.scalar(select(User).where(User.tenant_id == tenant.id,
                                                         User.email == settings.studio_actor_email))
     if not (tenant and user):

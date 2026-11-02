@@ -7,7 +7,7 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from finrecon_ai.api.app import create_app
 from finrecon_ai.api.deps import Runtime
@@ -32,23 +32,28 @@ def scripts():
     return type("Scripts", (), {"llm": AgentScripts()})()
 
 
-def strict_unit_of_work(session):
+def strict_unit_of_work(session, role: str | None = None):
     """Each request (and each workflow node) runs as production does: no tenant bound, no RLS bypass, until the
-    application binds one. Setup outside requests keeps the fixture's bypass."""
+    application binds one, and as the application's database role when there is one. Setup outside requests
+    keeps the fixture's owner login and bypass."""
 
     @contextmanager
     def unit_of_work():
         unbind(session)
+        if role:
+            session.execute(text(f'SET ROLE "{role}"'))
         try:
             yield session
         finally:
+            if role:
+                session.execute(text("RESET ROLE"))
             bypass_rls(session)
 
     return unit_of_work
 
 
-def make_client(session, store, scripts, saver):
-    unit_of_work = strict_unit_of_work(session)
+def make_client(session, store, scripts, saver, role: str | None = None):
+    unit_of_work = strict_unit_of_work(session, role)
     rt = Runtime(
         jwt_secret=SECRET, jwt_ttl_minutes=60, unit_of_work=unit_of_work,
         workflow_deps=lambda: WorkflowDeps(unit_of_work=unit_of_work, llm=scripts.llm, policy_store=store),
@@ -60,11 +65,11 @@ def make_client(session, store, scripts, saver):
 
 
 @pytest.fixture
-def client(session, world, store, scripts):
+def client(session, world, store, scripts, app_role):
     for user in session.scalars(select(User).where(User.tenant_id == world[0].id)):
         user.password_hash = hash_password(PASSWORD)
     session.flush()
-    return make_client(session, store, scripts, InMemorySaver())
+    return make_client(session, store, scripts, InMemorySaver(), app_role)
 
 
 from tests.test_workflows import store  # noqa: E402,F401 (fixture)

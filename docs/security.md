@@ -14,7 +14,7 @@ How FinRecon AI meets SRS §11. Each control names where it lives and which test
 | Separation of duties | Whoever started an investigation cannot decide its recommendation; one immutable decision per request | `test_approvals.py` |
 | Same rules over RPC | The Connect/gRPC services (`api/rpc.py`) authenticate the same bearer token and call the same functions as the REST endpoints, so roles, tenancy, validation, lockout and audit are shared, not re-implemented | `test_rpc.py` |
 
-## Tenant isolation (two layers)
+## Tenant isolation (three layers)
 
 1. **Application:** every query and service is scoped by the actor's tenant; another tenant's resource returns the
    same 404 as a missing one.
@@ -24,10 +24,19 @@ How FinRecon AI meets SRS §11. Each control names where it lives and which test
    inserts are rejected; link tables follow their parent row. API tests run strictly scoped, and `test_tenancy.py`
    checks every tenant table.
 
-**Limitation:** the scope is a transaction setting written by the application, on the same database login that
-owns the tables. It stops application bugs (a forgotten tenant filter) from leaking data. It does not stop an
-attacker who can run arbitrary SQL, who could change the setting; that is prevented by parameterised queries
-(SQLAlchemy throughout). Deployment hardening (Phase 6) adds a separate, non-owner database role for the API.
+3. **Database login:** the API connects as a role that owns nothing (`db/roles.py`, README "Database logins"). It
+   can read and write rows, and cannot alter or drop tables, switch row-level security off, replace the security
+   functions, or update or delete the append-only tables (privileges revoked as well as the trigger). The bypass
+   setting counts only for the table owner (migration 0007), so even SQL injected into the API could not widen
+   its view: setting `app.rls_bypass` does nothing for it. The application's two cross-tenant lookups (a case's
+   tenant for resuming an approved workflow, interrupted runs for the recovery sweep) are `SECURITY DEFINER`
+   functions that answer only those questions. The grant refuses superusers, `BYPASSRLS` roles and roles with the
+   owner's rights. The API and RPC suites run every request as this role, and `tests/security/test_db_roles.py`
+   attacks it directly.
+
+**Remaining limit:** within its own tenant the application role can read and write what the application can; the
+tenant setting is still written by the application, so injected SQL could choose another tenant's id. That is
+prevented by parameterised queries (SQLAlchemy throughout) and by never building SQL from input.
 
 ## Auditability
 
@@ -72,6 +81,7 @@ the safeguards hold even when an agent is fully fooled.
 | `test_approval_bypass.py` | Direct status changes by every role, wrong-channel transitions, forged and replayed resumes, decisions borrowed from another recommendation, superseded requests, self-approval with every role |
 | `test_tool_abuse.py` | Tools aimed at another case or tenant, SQL payloads in tool inputs, write attempts, oversized results |
 | `test_api_attacks.py` | SQL payloads in query parameters, login and notes; every read and write endpoint with another tenant's IDs |
+| `test_db_roles.py` | As the application's database role: altering tables, disabling RLS, dropping policies and triggers, replacing the bypass function, creating tables, editing `alembic_version`, rewriting the audit trail, and setting the RLS bypass to read other tenants |
 | `test_hostile_uploads.py` | Deep-nested JSON, oversized CSV fields, NUL bytes, bad encodings, encrypted PDFs, DOCX zip bombs, path traversal in file names, oversized uploads |
 
 `test_real_model_flags_injection` runs the real agents on a poisoned case and checks that the model reports the
@@ -88,4 +98,4 @@ planted instruction and is not steered by it. It calls Claude (about $0.50), so 
 
 ### Open items
 
-- Separate database role for the API (Phase 6), see Tenant isolation above.
+- None from earlier phases: CSV formula escaping (5d) and the separate database role (6) are done.
