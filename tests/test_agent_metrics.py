@@ -12,7 +12,7 @@ from finrecon_ai.db.enums import AgentName, ApprovalDecisionType, RoleName
 from finrecon_ai.workflows.case_investigation import decide_and_resume, investigate_case
 from tests.fakes import AgentScripts, final
 from tests.test_api import auth, client, scripts  # noqa: F401 (fixtures)
-from tests.test_approvals import approver, paused, proposal_steps  # noqa: F401 (fixtures)
+from tests.test_approvals import paused, proposal_steps  # noqa: F401 (fixtures)
 from tests.test_workflows import fee_case, investigation_steps, make_deps, store  # noqa: F401 (fixtures)
 
 

@@ -42,6 +42,18 @@ graph TD
   fail --> finish
 ```
 
+### Where runs live, and how they survive restarts
+
+| Started from | Thread | Checkpoints | Approval resumes it via |
+|---|---|---|---|
+| API, CLI | `case:<case_id>` | PostgreSQL (`PostgresSaver`), with each Deep Agent's turns under its step | `resume_case` here |
+| Studio (`langgraph dev`) | the Agent Server's thread | the Agent Server | `resume_on_agent_server` (SDK) |
+
+`cases.workflow_thread_id` records which. Before any start, `authorize_start` checks permission, assignment,
+status, and that no run of the case is still pending in either place. The paused step accepts only a decision
+recorded by the approval service (`recorded_decision`). Interrupted runs (`next` is a step other than
+`await_decision`) are finished by `recover_interrupted`: at API startup and via `finrecon workflow recover`.
+
 ### Inside each agent step: a Deep Agent (`agents/runtime.py`)
 
 Each agent node runs one LangChain Deep Agent, built from the active prompt version

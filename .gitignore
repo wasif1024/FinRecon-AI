@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 logs/
 storage/
+
+# langgraph dev's local server state
+.langgraph_api/

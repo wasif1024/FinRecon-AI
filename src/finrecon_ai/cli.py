@@ -137,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     workflow_commands = workflow.add_subparsers(dest="workflow_command", required=True)
     workflow_status = workflow_commands.add_parser("status", help="where a case's workflow stands")
     workflow_status.add_argument("case_number")
+    workflow_commands.add_parser("recover", help="finish runs that stopped mid-way (crash, deploy) from their "
+                                 "PostgreSQL checkpoints; calls Claude for the interrupted steps")
 
     approvals = commands.add_parser("approvals", help="decide recommended resolutions")
     approval_commands = approvals.add_subparsers(dest="approval_command", required=True)
@@ -257,6 +259,10 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         if args.command == "policies":
             return _policies(session, tenant, args)
 
+        if args.command == "workflow" and args.workflow_command == "recover":
+            session.commit()
+            return _workflow_recover()
+
         if args.command in ("investigate", "workflow"):
             case = session.scalar(select(InvestigationCase).where(InvestigationCase.tenant_id == tenant.id,
                                                                   InvestigationCase.case_number == args.case_number))
@@ -368,13 +374,17 @@ def _investigate(actor: Actor, case_id, case_number: str) -> int:
     from finrecon_ai.workflows.case_investigation import (
         WorkflowDeps,
         WorkflowError,
+        case_run_lock,
         investigate_case,
         postgres_checkpointer,
         session_unit_of_work,
     )
 
     deps = WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store())
-    with postgres_checkpointer() as checkpointer:
+    with case_run_lock(case_id) as acquired, postgres_checkpointer() as checkpointer:
+        if not acquired:
+            print(f"{case_number}: its workflow is running in another process", file=sys.stderr)
+            return 1
         try:
             result = investigate_case(deps, checkpointer, actor, case_id)
         except (WorkflowError, PermissionDenied) as exc:
@@ -382,6 +392,22 @@ def _investigate(actor: Actor, case_id, case_number: str) -> int:
             return 1
     _print_case_summary(case_id, result.state, result.paused_for_approval)
     return 0 if result.paused_for_approval else 1
+
+
+def _workflow_recover() -> int:
+    from finrecon_ai.agents.llm import default_client
+    from finrecon_ai.policies.store import default_store
+    from finrecon_ai.workflows.case_investigation import (
+        WorkflowDeps,
+        postgres_checkpointer,
+        recover_interrupted,
+        session_unit_of_work,
+    )
+
+    deps = WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store())
+    recovered = recover_interrupted(deps, postgres_checkpointer)
+    print(f"recovered {len(recovered)} interrupted run(s)" + "".join(f"\n  {c}" for c in recovered))
+    return 0
 
 
 def _workflow_status(case_id) -> int:

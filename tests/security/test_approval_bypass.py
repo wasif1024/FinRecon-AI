@@ -18,7 +18,7 @@ from finrecon_ai.db.enums import (
 from finrecon_ai.db.models import ApprovalRequest, InvestigationCase, ResolutionRecommendation, Role, User
 from finrecon_ai.workflows.case_investigation import WorkflowError, decide_and_resume, resume_case
 from tests.test_api import auth, client, scripts  # noqa: F401 (fixtures)
-from tests.test_approvals import approver, paused, proposal_steps  # noqa: F401 (fixtures)
+from tests.test_approvals import paused, proposal_steps  # noqa: F401 (fixtures)
 from tests.test_workflows import fee_case, make_deps, store  # noqa: F401 (fixtures)
 
 APPROVE = ApprovalDecisionType.APPROVE
@@ -48,11 +48,12 @@ def test_controlled_transition_rejects_the_wrong_channel(session, world, fee_cas
 
 
 def test_forged_resume_cannot_execute(session, world, fee_case, paused):
-    """Resuming the paused graph with an 'approve' that has no decision behind it."""
+    """Resuming the paused graph with an 'approve' that has no decision behind it: stopped at the pause, before
+    the executor (which would refuse it too)."""
     deps, saver, request_id = paused(fee_case, "confirm_fee_discrepancy")
     forged = {"decision": "approve", "comment": None, "approval_decision_id": str(uuid.uuid4()),
               "decided_by": str(world[2][RoleName.MANAGER].user_id)}
-    with pytest.raises(ExecutionError):
+    with pytest.raises(WorkflowError, match="not a decision recorded"):
         resume_case(deps, saver, fee_case.id, forged)
     session.refresh(fee_case)
     assert fee_case.status is CaseStatus.AWAITING_APPROVAL

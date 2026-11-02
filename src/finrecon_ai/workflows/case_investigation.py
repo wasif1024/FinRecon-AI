@@ -19,6 +19,7 @@ from typing import Any, TypedDict
 import anthropic
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, RetryPolicy, interrupt
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from finrecon_ai.agents.llm import ChatModelFactory
@@ -38,7 +39,8 @@ from finrecon_ai.db.enums import (
     RecommendationStatus,
     RoleName,
 )
-from finrecon_ai.db.models import ApprovalRequest, ReconciliationException, ResolutionRecommendation
+from finrecon_ai.db.models import ApprovalRequest, InvestigationCase, ReconciliationException, ResolutionRecommendation
+from finrecon_ai.db.tenancy import bind_tenant, bypass_rls
 from finrecon_ai.log import get_logger, log_context
 from finrecon_ai.policies.store import PolicyStore
 
@@ -94,12 +96,12 @@ def thread_id_for(case_id: uuid.UUID) -> str:
 
 def build_case_graph(deps: WorkflowDeps, checkpointer: Any):
     graph = StateGraph(CaseState)
-    graph.add_node("start", lambda state: _start(deps, state))
+    graph.add_node("start", lambda state, config: _start(deps, state, config))
     graph.add_node("investigate", lambda state: _investigate(deps, state), retry_policy=AGENT_RETRY)
     graph.add_node("assess_risk", lambda state: _assess_risk(deps, state), retry_policy=AGENT_RETRY)
     graph.add_node("propose_resolution", lambda state: _propose(deps, state), retry_policy=AGENT_RETRY)
     graph.add_node("request_approval", lambda state, config: _request_approval(deps, state, config))
-    graph.add_node("await_decision", _await_decision)
+    graph.add_node("await_decision", lambda state: _await_decision(deps, state))
     graph.add_node("execute_resolution", lambda state: _execute(deps, state))
     graph.add_node("failed", lambda state: _failed(deps, state))
 
@@ -123,26 +125,47 @@ def build_case_graph(deps: WorkflowDeps, checkpointer: Any):
 
 def investigate_case(deps: WorkflowDeps, checkpointer: Any, actor: Actor, case_id: uuid.UUID) -> WorkflowResult:
     """Run the workflow until it pauses for approval (or fails). Permission-checked as the requesting user."""
+    authorize_start(deps, checkpointer, actor, case_id)
+    graph = build_case_graph(deps, checkpointer)
+    config = _run_config(actor.tenant_id, case_id, "case_investigation")
+    with log_context(case_id=case_id, workflow=WORKFLOW_VERSION):
+        state = graph.invoke(initial_state(actor, case_id), config)
+    return WorkflowResult(thread_id_for(case_id), bool(graph.get_state(config).next), dict(state))
+
+
+def authorize_start(deps: WorkflowDeps, checkpointer: Any, actor: Actor, case_id: uuid.UUID,
+                    current_thread: str | None = None) -> None:
+    """The checks before any run starts, wherever it runs (API, CLI, Agent Server): permission, assignment,
+    status, and no other run of this case still in progress or waiting for a decision. `current_thread` is the
+    Agent Server thread doing the check, which is of course in progress itself."""
     actor.require(Permission.CASE_WORK)
     with deps.unit_of_work() as session:
         case = get_case(session, actor, case_id)
         require_assignment(actor, case)
         if case.status not in STARTABLE:
             raise WorkflowError(f"case is {case.status}; investigation can start only from new or investigating")
-
-    graph = build_case_graph(deps, checkpointer)
-    config = _run_config(actor.tenant_id, case_id, "case_investigation")
-    if graph.get_state(config).next:
+        thread = case.workflow_thread_id
+    if build_case_graph(deps, checkpointer).get_state({"configurable": {"thread_id": thread_id_for(case_id)}}).next:
         raise WorkflowError("this case's workflow is already running or waiting for a decision")
-    with log_context(case_id=case_id, workflow=WORKFLOW_VERSION):
-        state = graph.invoke({"tenant_id": str(actor.tenant_id), "case_id": str(case_id),
-                              "requested_by": str(actor.user_id), "round": 1, "error": None,
-                              "decision": None, "risk_execution_id": None, "rejected_output": []}, config)
-    return WorkflowResult(thread_id_for(case_id), bool(graph.get_state(config).next), dict(state))
+    if thread and thread not in (thread_id_for(case_id), current_thread) and agent_server_thread_pending(thread):
+        raise WorkflowError(f"this case's workflow is running on the Agent Server (thread {thread})")
+
+
+def initial_state(actor: Actor, case_id: uuid.UUID) -> CaseState:
+    return {"tenant_id": str(actor.tenant_id), "case_id": str(case_id), "requested_by": str(actor.user_id),
+            "round": 1, "error": None, "decision": None, "risk_execution_id": None, "rejected_output": []}
 
 
 def resume_case(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID, decision: dict[str, Any]) -> WorkflowResult:
-    """Continue a paused workflow with a reviewer's decision. Called by the approval service (Phase 4)."""
+    """Continue a paused workflow with a reviewer's decision, wherever its run lives. Called by the approval
+    service: runs started by the API or CLI are in this database's checkpoints; runs started on the Agent Server
+    (Studio) are resumed there."""
+    with deps.unit_of_work() as session:
+        bypass_rls(session)  # the decision was authorised by the approval service; this only finds the thread
+        thread = session.scalar(select(InvestigationCase.workflow_thread_id)
+                                .where(InvestigationCase.id == case_id))
+    if thread and thread != thread_id_for(case_id):
+        return resume_on_agent_server(thread, decision)
     graph = build_case_graph(deps, checkpointer)
     config = _run_config(None, case_id, f"case_resume:{decision.get('decision')}")
     if graph.get_state(config).next != ("await_decision",):
@@ -168,7 +191,6 @@ def decide_and_resume(deps: WorkflowDeps, checkpointer: Any, actor: Actor, reque
 
 def resume_decided(deps: WorkflowDeps, checkpointer: Any, tenant_id: uuid.UUID) -> list[uuid.UUID]:
     """Recovery: resume workflows whose decision was recorded but whose resume did not complete."""
-    from sqlalchemy import select
 
     from finrecon_ai.approvals.service import resume_payload
     from finrecon_ai.db.enums import ApprovalRequestStatus
@@ -196,6 +218,94 @@ def resume_decided(deps: WorkflowDeps, checkpointer: Any, tenant_id: uuid.UUID) 
     return resumed
 
 
+# Nodes a run can be interrupted in (process killed, deploy, crash). Paused-for-approval threads are not
+# interrupted: they wait for a decision and are resumed by the approval service.
+RESUMABLE_NODES = {"start", "investigate", "assess_risk", "propose_resolution", "request_approval",
+                   "execute_resolution", "failed"}
+
+
+def recover_case(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID) -> WorkflowResult | None:
+    """Finish a run that stopped mid-way, from its last PostgreSQL checkpoint (LangGraph durable execution).
+
+    Completed steps are not repeated; the interrupted step runs again. Returns None when there is nothing to
+    recover. The caller holds `case_run_lock`, so a run still in progress elsewhere is never driven twice.
+    """
+    graph = build_case_graph(deps, checkpointer)
+    config = _run_config(None, case_id, "case_recovery")
+    snapshot = graph.get_state(config)
+    if not snapshot.next or not set(snapshot.next) <= RESUMABLE_NODES:
+        return None
+    log.info("workflow.recovering", case_id=case_id, next=list(snapshot.next))
+    with log_context(case_id=case_id, workflow=WORKFLOW_VERSION):
+        state = graph.invoke(None, config)
+    return WorkflowResult(thread_id_for(case_id), bool(graph.get_state(config).next), dict(state))
+
+
+def interrupted_cases(deps: WorkflowDeps, checkpointer: Any) -> list[uuid.UUID]:
+    """Cases whose workflow stopped mid-way, across tenants (the recovery sweep runs as the system)."""
+    with deps.unit_of_work() as session:
+        bypass_rls(session)
+        candidates = session.scalars(select(InvestigationCase.id).where(
+            InvestigationCase.status == CaseStatus.INVESTIGATING,
+            InvestigationCase.workflow_thread_id.like("case:%"))).all()  # Agent Server runs recover there
+    graph = build_case_graph(deps, checkpointer)
+    return [case_id for case_id in candidates
+            if set(graph.get_state({"configurable": {"thread_id": thread_id_for(case_id)}}).next or ())
+            & RESUMABLE_NODES]
+
+
+# --- runs on the LangGraph Agent Server (Studio) ---
+
+
+def _agent_server_client():
+    from langgraph_sdk import get_sync_client
+
+    from finrecon_ai.config import get_settings
+
+    return get_sync_client(url=get_settings().agent_server_url)
+
+
+def agent_server_thread_pending(thread_id: str) -> bool:
+    """Whether an Agent Server thread is still running or waiting. Unreachable counts as pending: a case is
+    never started twice because the server that owns it is down."""
+    try:
+        return bool(_agent_server_client().threads.get_state(thread_id).get("next"))
+    except Exception:  # noqa: BLE001 (any failure means we cannot tell)
+        log.warning("workflow.agent_server_unreachable", thread_id=thread_id)
+        return True
+
+
+def resume_on_agent_server(thread_id: str, decision: dict[str, Any]) -> WorkflowResult:
+    from finrecon_ai.agent_server import CASE_GRAPH_ID
+
+    client = _agent_server_client()
+    values = client.runs.wait(thread_id, CASE_GRAPH_ID, command={"resume": decision})
+    state = client.threads.get_state(thread_id)
+    return WorkflowResult(thread_id, bool(state.get("next")), dict(values or {}))
+
+
+def recover_interrupted(deps: WorkflowDeps, checkpointer_factory: Callable[[], AbstractContextManager[Any]],
+                        run_lock: Callable[[uuid.UUID], AbstractContextManager[bool]] | None = None
+                        ) -> list[uuid.UUID]:
+    """The recovery sweep: finish every interrupted run that no process is driving. Used by
+    `finrecon workflow recover` and at API startup."""
+    run_lock = run_lock or case_run_lock
+    recovered = []
+    with checkpointer_factory() as checkpointer:
+        for case_id in interrupted_cases(deps, checkpointer):
+            with log_context(case_id=case_id), run_lock(case_id) as acquired:
+                if not acquired:
+                    log.info("workflow.recovery_skipped_running")
+                    continue
+                try:
+                    if recover_case(deps, checkpointer, case_id) is not None:
+                        recovered.append(case_id)
+                except Exception:  # one bad case must not stop the sweep; its state shows the outcome
+                    log.exception("workflow.recovery_failed")
+    log.info("workflow.recovery_sweep", recovered=len(recovered))
+    return recovered
+
+
 def _run_config(tenant_id: uuid.UUID | None, case_id: uuid.UUID, run_name: str) -> dict[str, Any]:
     """Thread for checkpoints, plus the name, tags and metadata LangSmith shows for this run."""
     metadata = {"case_id": str(case_id), "workflow": WORKFLOW_VERSION}
@@ -213,12 +323,13 @@ def workflow_state(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID) ->
 # --- nodes ---
 
 
-def _start(deps: WorkflowDeps, state: CaseState) -> dict[str, Any]:
+def _start(deps: WorkflowDeps, state: CaseState, config: dict) -> dict[str, Any]:
     with deps.unit_of_work() as session:
         actor, case = _load(session, state)
         if case.status is CaseStatus.NEW:
             transition_case(session, actor, case.id, CaseStatus.INVESTIGATING)
-        case.workflow_thread_id = thread_id_for(case.id)
+        # Where this run lives: `case:<id>` here, or an Agent Server thread when started from Studio.
+        case.workflow_thread_id = config["configurable"].get("thread_id") or thread_id_for(case.id)
         _audit(session, actor, case.id, "workflow.started", {"workflow": WORKFLOW_VERSION, "round": state["round"]})
     return {"error": None}
 
@@ -274,11 +385,30 @@ def _request_approval(deps: WorkflowDeps, state: CaseState, config: dict) -> dic
         return {"approval_request_id": str(request.id)}
 
 
-def _await_decision(state: CaseState) -> dict[str, Any]:
-    # Pauses here; the value passed to Command(resume=...) becomes `decision`.
-    decision = interrupt({"approval_request_id": state["approval_request_id"], "case_id": state["case_id"],
-                          "recommendation_id": state["recommendation_id"]})
+def _await_decision(deps: WorkflowDeps, state: CaseState) -> dict[str, Any]:
+    # Pauses here until resumed. The resume value only says which decision to apply; the decision itself is read
+    # back from the approval service's record, so a hand-made resume (an Agent Server client, Studio) cannot
+    # approve, reject or return a case.
+    resumed = interrupt({"approval_request_id": state["approval_request_id"], "case_id": state["case_id"],
+                         "recommendation_id": state["recommendation_id"]})
+    with deps.unit_of_work() as session:
+        bind_tenant(session, uuid.UUID(state["tenant_id"]))
+        decision = recorded_decision(session, state, resumed)
     return {"decision": decision, "round": state["round"] + (1 if _returned(decision) else 0)}
+
+
+def recorded_decision(session: Session, state: CaseState, resumed: Any) -> dict[str, Any]:
+    from finrecon_ai.approvals.service import resume_payload
+    from finrecon_ai.db.models import ApprovalDecision
+
+    decision_id = resumed.get("approval_decision_id") if isinstance(resumed, dict) else None
+    try:
+        row = session.get(ApprovalDecision, uuid.UUID(str(decision_id))) if decision_id else None
+    except ValueError:
+        row = None
+    if row is None or str(row.approval_request_id) != state["approval_request_id"]:
+        raise WorkflowError("resume value is not a decision recorded for this approval request")
+    return resume_payload(row)
 
 
 def _execute(deps: WorkflowDeps, state: CaseState) -> dict[str, Any]:

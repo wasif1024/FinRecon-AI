@@ -22,6 +22,7 @@ from deepagents import GeneralPurposeSubagentProfile, HarnessProfile, create_dee
 from langchain.agents.middleware import AgentMiddleware, ModelCallLimitMiddleware, TodoListMiddleware, ToolCallRequest
 from langchain.agents.structured_output import ProviderStrategy, StructuredOutputError
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage, ToolMessage
 from langchain_core.outputs import LLMResult
 from langchain_core.tools import StructuredTool, ToolException
@@ -73,12 +74,7 @@ def run_agent(
     parent_execution_id: uuid.UUID | None = None,
 ) -> AgentResult:
     manifest = spec.manifest
-    wanted = set(manifest.tools) | {t for s in manifest.subagents for t in s.tools}
-    unknown = sorted(wanted - TOOLS.keys())
-    if unknown:
-        raise ValueError(f"{spec.ref} allows unknown tools: {unknown}")
     output_model = OUTPUT_SCHEMAS[manifest.output_schema]
-
     execution = AgentExecutionRecord(
         tenant_id=ctx.tenant_id, agent_name=manifest.id, status=AgentExecutionStatus.RUNNING,
         case_id=ctx.case.id, run_id=ctx.exception.run_id, parent_execution_id=parent_execution_id,
@@ -89,23 +85,8 @@ def run_agent(
     session.flush()
 
     tool_calls: list[dict[str, Any]] = []
-    audit = ToolAuditMiddleware(session, ctx, execution, tool_calls)
-    tools = {name: langchain_tool(TOOLS[name], ctx) for name in wanted}
-    agent = create_deep_agent(
-        model=client(manifest),
-        tools=[tools[name] for name in manifest.tools],
-        # Static system prompt first, marked so it caches across cases.
-        system_prompt=SystemMessage(content=[{"type": "text", "text": spec.system_text,
-                                              "cache_control": {"type": "ephemeral"}}]),
-        subagents=[{"name": s.name, "description": s.description, "system_prompt": spec.subagent_texts[s.name],
-                    "tools": [tools[name] for name in s.tools],
-                    "middleware": [ToolAuditMiddleware(session, ctx, execution, tool_calls, subagent=s.name),
-                                   ModelCallLimitMiddleware(run_limit=s.max_turns, exit_behavior="error")]}
-                   for s in manifest.subagents],
-        middleware=[TodoListMiddleware(), audit, ModelCallLimitMiddleware(run_limit=manifest.max_turns, exit_behavior="error")],
-        response_format=ProviderStrategy(strict_json_schema(output_model), strict=True),
-        name=f"agent:{manifest.id.value}",
-    )
+    agent = build_deep_agent(spec, client(manifest), ctx, audit_for=lambda subagent: [
+        ToolAuditMiddleware(session, ctx, execution, tool_calls, subagent=subagent)])
 
     observer = RunObserver(manifest.model)
     trace_id = uuid.uuid4()
@@ -153,6 +134,35 @@ def run_agent(
 
 class _Stop(Exception):
     pass
+
+
+def build_deep_agent(spec: PromptSpec, model: BaseChatModel, ctx: ToolContext | None,
+                     audit_for: Callable[[str | None], list[AgentMiddleware]] = lambda subagent: []):
+    """The Deep Agent for one prompt version: case tools bound to `ctx`, declared subagents, planning, a turn
+    limit per agent and subagent, and structured output. `audit_for(None)` / `audit_for(name)` supply the audit
+    middleware for the agent and each subagent. The Agent Server builds it with no case to draw its graph."""
+    manifest = spec.manifest
+    wanted = set(manifest.tools) | {t for s in manifest.subagents for t in s.tools}
+    unknown = sorted(wanted - TOOLS.keys())
+    if unknown:
+        raise ValueError(f"{spec.ref} allows unknown tools: {unknown}")
+    tools = {name: langchain_tool(TOOLS[name], ctx) for name in wanted}
+    return create_deep_agent(
+        model=model,
+        tools=[tools[name] for name in manifest.tools],
+        # Static system prompt first, marked so it caches across cases.
+        system_prompt=SystemMessage(content=[{"type": "text", "text": spec.system_text,
+                                              "cache_control": {"type": "ephemeral"}}]),
+        subagents=[{"name": s.name, "description": s.description, "system_prompt": spec.subagent_texts[s.name],
+                    "tools": [tools[name] for name in s.tools],
+                    "middleware": [*audit_for(s.name),
+                                   ModelCallLimitMiddleware(run_limit=s.max_turns, exit_behavior="error")]}
+                   for s in manifest.subagents],
+        middleware=[TodoListMiddleware(), *audit_for(None),
+                    ModelCallLimitMiddleware(run_limit=manifest.max_turns, exit_behavior="error")],
+        response_format=ProviderStrategy(strict_json_schema(OUTPUT_SCHEMAS[manifest.output_schema]), strict=True),
+        name=f"agent:{manifest.id.value}",
+    )
 
 
 def _structured_output(state: dict, output_model: type[BaseModel], schema_name: str,

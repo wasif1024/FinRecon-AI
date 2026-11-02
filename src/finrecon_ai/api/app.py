@@ -5,6 +5,8 @@ HTTP error mapping and request IDs, never its own business rules.
 """
 
 import re
+import threading
+from contextlib import asynccontextmanager
 from functools import cache
 
 from fastapi import FastAPI, Request
@@ -60,6 +62,7 @@ ERROR_STATUS: list[tuple[type[Exception], int]] = [
 
 def create_app(settings: Settings | None = None, rt: Runtime | None = None) -> FastAPI:
     settings = settings or get_settings()
+    recover = rt is None and settings.recover_on_startup  # tests pass their own runtime
     if rt is None:
         configure_logging(settings.log_level, settings.log_format, settings.log_file or None)
         from finrecon_ai.tracing import configure_tracing
@@ -69,7 +72,7 @@ def create_app(settings: Settings | None = None, rt: Runtime | None = None) -> F
     if len(rt.jwt_secret or "") < MIN_SECRET_LENGTH:
         raise RuntimeError(f"JWT_SECRET must be set to at least {MIN_SECRET_LENGTH} characters")
 
-    app = FastAPI(title="FinRecon AI", version="0.1.0",
+    app = FastAPI(title="FinRecon AI", version="0.1.0", lifespan=_lifespan if recover else None,
                   description="Agentic financial reconciliation with human-approved resolutions.")
     app.state.runtime = rt
     app.add_middleware(CORSMiddleware, allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
@@ -96,6 +99,17 @@ def create_app(settings: Settings | None = None, rt: Runtime | None = None) -> F
     for module in (health, auth, users, sources, reconciliation, cases, approvals, policies, reports, metrics, audit):
         app.include_router(module.router)
     return app
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Finish runs a previous API process left mid-way (deploy, crash), in the background."""
+    from finrecon_ai.workflows.case_investigation import recover_interrupted
+
+    rt: Runtime = app.state.runtime
+    threading.Thread(target=recover_interrupted, args=(rt.workflow_deps(), rt.checkpointer, rt.run_lock),
+                     name="workflow-recovery", daemon=True).start()
+    yield
 
 
 def _handler(status_code: int):

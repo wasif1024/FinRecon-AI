@@ -85,7 +85,7 @@ class ScriptedChatModel(BaseChatModel):
         steps = self.script_for(request)
         self.record.append(request)
         step = steps.pop(0)
-        if isinstance(step, Exception):
+        if isinstance(step, BaseException):
             raise step
         message = step(request) if callable(step) else step
         return ChatResult(generations=[ChatGeneration(message=message)])

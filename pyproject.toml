@@ -41,6 +41,7 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "httpx2>=2.16.0",
+    "langgraph-cli[inmem]>=0.4.40",
     "pytest>=9.2.0",
 ]
 

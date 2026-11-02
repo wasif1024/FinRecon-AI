@@ -1,0 +1,13 @@
+{
+  "dependencies": [
+    "."
+  ],
+  "graphs": {
+    "case-investigation": "./src/finrecon_ai/agent_server.py:case_investigation",
+    "investigation-agent": "./src/finrecon_ai/agent_server.py:investigation_agent",
+    "risk-analysis-agent": "./src/finrecon_ai/agent_server.py:risk_analysis_agent",
+    "resolution-agent": "./src/finrecon_ai/agent_server.py:resolution_agent"
+  },
+  "env": ".env",
+  "python_version": "3.13"
+}

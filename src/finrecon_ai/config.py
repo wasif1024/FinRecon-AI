@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     langsmith_endpoint: str | None = None
     langsmith_hide_content: bool = False  # keep trace structure, send no inputs/outputs (for real data)
 
+    # Long-running workflows: at API startup, finish runs a previous process left mid-way.
+    recover_on_startup: bool = True
+
+    # LangGraph Agent Server (`langgraph dev`) and LangSmith Studio. Studio runs act as this user, through the
+    # same permission checks as the API, and only in development.
+    environment: Literal["development", "production"] = "development"
+    agent_server_url: str = "http://127.0.0.1:2024"
+    studio_tenant_slug: str = "demo"
+    studio_actor_email: str = "manager@demo.finrecon.dev"
+
     log_level: str = "INFO"
     log_format: Literal["console", "json"] = "console"  # terminal output; the file is always JSON lines
     log_file: str | None = "logs/finrecon.log"  # empty string disables the file

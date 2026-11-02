@@ -13,6 +13,7 @@ from finrecon_ai.cases.service import assign_case
 from finrecon_ai.db.enums import (
     AgentExecutionStatus,
     AgentName,
+    ApprovalDecisionType,
     ApprovalRequestStatus,
     CaseStatus,
     EvidenceType,
@@ -38,13 +39,14 @@ from finrecon_ai.policies.store import PolicyStore
 from finrecon_ai.workflows.case_investigation import (
     WorkflowDeps,
     WorkflowError,
+    decide_and_resume,
     investigate_case,
     postgres_checkpointer,
-    resume_case,
     workflow_state,
 )
 from tests.fakes import AgentScripts, final, last_tool_results, reply, tool_use
 from tests.test_policies import SAMPLES
+
 
 
 # --- scripted agents ---
@@ -237,17 +239,16 @@ def test_cannot_start_twice_while_waiting(session, world, fee_case, make_deps):
         investigate_case(make_deps(AgentScripts()), saver, world[2][RoleName.MANAGER], fee_case.id)
 
 
-def test_returned_case_is_reinvestigated_and_recommendation_superseded(session, world, fee_case, make_deps):
+def test_returned_case_is_reinvestigated_and_recommendation_superseded(session, world, fee_case, make_deps,
+                                                                       approver):
     saver = InMemorySaver()
     llm = AgentScripts(investigation=investigation_steps() + investigation_steps(),
                        resolution=resolution_steps() + resolution_steps())
     deps = make_deps(llm)
     first = investigate_case(deps, saver, world[2][RoleName.MANAGER], fee_case.id)
 
-    fee_case.status = CaseStatus.INVESTIGATING  # the Phase 4 approval service makes this move
-    session.flush()
-    second = resume_case(deps, saver, fee_case.id, {"decision": "return_for_investigation",
-                                                    "comment": "Check the merchant's other fees."})
+    second = decide_and_resume(deps, saver, approver, uuid.UUID(first.state["approval_request_id"]),
+                               ApprovalDecisionType.RETURN_FOR_INVESTIGATION, comment="Check the merchant's other fees.")
     assert second.paused_for_approval and second.state["round"] == 2
     old = session.get(ResolutionRecommendation, uuid.UUID(first.state["recommendation_id"]))
     new = session.get(ResolutionRecommendation, uuid.UUID(second.state["recommendation_id"]))
@@ -328,3 +329,49 @@ def test_policy_passage_seen_only_through_earlier_findings_can_be_cited(session,
     assert result.state["rejected_output"] == []
     recommendation = session.get(ResolutionRecommendation, uuid.UUID(result.state["recommendation_id"]))
     assert len(recommendation.proposed_action["policy_evidence_ids"]) == 1
+
+
+# --- long-running: recovery from an interrupted run ---
+
+
+def test_interrupted_run_is_recovered_from_its_checkpoint(session, world, fee_case, make_deps):
+    """A run that dies mid-way (process killed, deploy, crash) resumes from its last checkpoint; completed steps
+    are not repeated."""
+    from finrecon_ai.workflows.case_investigation import interrupted_cases, recover_case
+
+    saver = InMemorySaver()
+    manager = world[2][RoleName.MANAGER]
+    dying = AgentScripts(investigation=investigation_steps(), resolution=[SystemExit("process killed")])
+    with pytest.raises(SystemExit):
+        investigate_case(make_deps(dying), saver, manager, fee_case.id)
+
+    assert interrupted_cases(make_deps(None), saver) == [fee_case.id]
+    with pytest.raises(WorkflowError, match="already running"):
+        investigate_case(make_deps(dying), saver, manager, fee_case.id)
+
+    healthy = AgentScripts(resolution=resolution_steps())
+    result = recover_case(make_deps(healthy), saver, fee_case.id)
+    assert result.paused_for_approval
+    assert healthy.calls == ["resolution", "resolution"], "the finished investigation is not run again"
+    assert interrupted_cases(make_deps(None), saver) == []
+    assert recover_case(make_deps(healthy), saver, fee_case.id) is None, "a paused case waits for a decision"
+
+
+def test_studio_style_resume_cannot_decide(session, world, fee_case, make_deps):
+    """An Agent Server client (Studio) can send any resume value; only a recorded decision is applied."""
+    from langgraph.types import Command
+
+    from finrecon_ai.workflows.case_investigation import build_case_graph, thread_id_for
+
+    saver = InMemorySaver()
+    llm = AgentScripts(investigation=investigation_steps(), resolution=resolution_steps())
+    deps = make_deps(llm)
+    investigate_case(deps, saver, world[2][RoleName.MANAGER], fee_case.id)
+    graph = build_case_graph(deps, saver)
+    config = {"configurable": {"thread_id": thread_id_for(fee_case.id)}}
+    for forged in ({"decision": "reject"}, "approve", {"approval_decision_id": str(uuid.uuid4())}):
+        with pytest.raises(WorkflowError, match="not a decision recorded"):
+            graph.invoke(Command(resume=forged), config)
+    assert graph.get_state(config).next == ("await_decision",), "still waiting for a real decision"
+    session.refresh(fee_case)
+    assert fee_case.status is CaseStatus.AWAITING_APPROVAL

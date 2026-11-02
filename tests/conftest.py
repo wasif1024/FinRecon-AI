@@ -96,3 +96,20 @@ def case_ids(session, world):
     tenant, run, _ = world
     created = create_cases_for_run(session, Actor.system(tenant.id), run.id).created
     return [c.id for c in created]
+
+
+@pytest.fixture
+def approver(session, world):
+    """A second manager: the first one starts investigations, so they may not approve them."""
+    import uuid
+
+    from finrecon_ai.db.enums import RoleName
+    from finrecon_ai.db.models import Role
+
+    tenant = world[0]
+    user = User(tenant_id=tenant.id, email=f"approver-{uuid.uuid4().hex[:6]}@demo.dev", full_name="Approver",
+                roles=[session.scalar(select(Role).where(Role.name == RoleName.MANAGER))])
+    session.add(user)
+    session.flush()
+    return load_actor(session, tenant.id, user.id)
+

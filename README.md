@@ -121,6 +121,35 @@ uv run finrecon approvals decide CASE-000008 --decision approve   # a different 
 
 Prompts are versioned files in `src/finrecon_ai/agents/prompts/` (see the README there).
 
+## LangSmith Studio (LangGraph Agent Server)
+
+`langgraph.json` serves the graphs on a local LangGraph Agent Server, so they open in LangSmith Studio:
+
+```bash
+uv run langgraph dev --n-jobs-per-worker 10
+# Studio: https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024
+```
+
+| Graph | What it is |
+|---|---|
+| `case-investigation` | The whole case workflow (the same graph the API runs). Input `{"case_number": "CASE-000021"}`. Watch each step, Deep Agent, subagent and tool call live; it pauses for approval |
+| `investigation-agent`, `risk-analysis-agent`, `resolution-agent` | Each Deep Agent's own graph from the active prompt version, to inspect. They run only inside `case-investigation`, so every run is recorded and audited |
+
+Studio runs act as `STUDIO_ACTOR_EMAIL` in `STUDIO_TENANT_SLUG` (the demo manager by default) and go through the same
+checks as the API: permission, assignment, status, and no other run of the case in progress. They call Claude.
+Only the approval service decides: record the decision in the dashboard or with `finrecon approvals decide`, and
+the run is resumed on the Agent Server; a resume value typed into Studio is refused unless it names that recorded
+decision. The graphs are refused unless `ENVIRONMENT=development`. `langgraph dev` keeps its threads in
+`.langgraph_api/`; a deployed Agent Server keeps them in PostgreSQL (and needs Redis and a license key; see Phase 6).
+
+## Long-running workflows
+
+Every case workflow is checkpointed in PostgreSQL after each step, including each Deep Agent's own turns (stored
+under the step's namespace). A case can wait in `awaiting_approval` for days and resume from its checkpoint. A run
+that stops mid-way (process killed, deploy, crash) is finished from its last checkpoint without repeating
+completed steps: automatically when the API starts (`RECOVER_ON_STARTUP`), or with
+`uv run finrecon workflow recover`. A per-case PostgreSQL advisory lock keeps two processes from driving one case.
+
 ## Tracing, monitoring and evaluation
 
 **Tracing (LangSmith).** With `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` set, every workflow run is one

@@ -9,7 +9,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 
 from finrecon_ai.approvals.executor import ExecutionError, execute_approved
 from finrecon_ai.approvals.service import ApprovalError, decide, list_pending
-from finrecon_ai.authz import Actor, PermissionDenied, load_actor
+from finrecon_ai.authz import Actor, PermissionDenied
 from finrecon_ai.cases.service import InvalidTransition, transition_case
 from finrecon_ai.db.enums import (
     ApprovalDecisionType,
@@ -27,9 +27,7 @@ from finrecon_ai.db.models import (
     AuditEvent,
     ReconciliationException,
     ResolutionRecommendation,
-    Role,
     TransactionMatch,
-    User,
     transaction_match_items,
 )
 from finrecon_ai.workflows.case_investigation import decide_and_resume, investigate_case, resume_decided
@@ -45,17 +43,6 @@ def proposal_steps(resolution_type="request_documentation"):
     return [reply("tool_use", tool_use("get_case")), final({
         "resolution_type": resolution_type, "summary": "s", "rationale": "r", "action_steps": ["Contact PayGate"],
         "contact": "paygate", "evidence": [], "policy_labels": [], "confidence": "medium"})]
-
-
-@pytest.fixture
-def approver(session, world):
-    """A second manager: the first one starts investigations, so they may not approve them."""
-    tenant = world[0]
-    user = User(tenant_id=tenant.id, email=f"approver-{uuid.uuid4().hex[:6]}@demo.dev", full_name="Approver",
-                roles=[session.scalar(select(Role).where(Role.name == RoleName.MANAGER))])
-    session.add(user)
-    session.flush()
-    return load_actor(session, tenant.id, user.id)
 
 
 @pytest.fixture
