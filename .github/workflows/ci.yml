@@ -87,7 +87,10 @@ jobs:
           done
           sed -i "s|^LANGSMITH_TRACING=.*|LANGSMITH_TRACING=false|; s|^AGENT_WORKSPACE=.*|AGENT_WORKSPACE=state|" .env
       - name: Build and start (migrations as the owner, then the API as finrecon_app, then the dashboard)
-        run: docker compose --profile web up -d --build --wait
+        run: |
+          # Bind mounts keep the host's ownership on Linux: let the containers' app user (uid 1000) write them.
+          mkdir -p logs storage && chmod a+rwx logs storage
+          docker compose --profile web up -d --build --wait
       - name: Smoke test
         run: |
           curl -fsS localhost:8000/health
@@ -116,6 +119,7 @@ jobs:
           E2E_BASE_URL: http://localhost:3000
         run: |
           pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chrome   # the suite uses channel "chrome"
           pnpm exec playwright test --reporter=line
       - name: Logs
         if: failure()

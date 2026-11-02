@@ -373,7 +373,10 @@ docker compose --profile web down                   # stop (data stays in the vo
 | `app` | The CLI on demand (`docker compose run --rm app <command>`), with `./data` mounted read-only |
 | `otel-lgtm` | Optional (`--profile otel`): Grafana on :3001. Set `DOCKER_OTEL_ENDPOINT=http://otel-lgtm:4318` in `.env` and the API and dashboard export to it |
 
-Containers write logs to `./logs` (mounted at `/app/logs`) and keep uploaded originals in `./storage`. To run them
+Containers write logs to `./logs` (mounted at `/app/logs`) and keep uploaded originals in `./storage`. On Linux,
+bind mounts keep the host's ownership, so let the containers' user (uid 1000) write them first:
+`mkdir -p logs storage && sudo chown 1000:1000 logs storage` (CI uses `chmod a+rwx`). If the log folder is not
+writable the app logs to stderr only, with a `log.file_unavailable` warning. To run them
 against another database (the host's, say), set `DOCKER_DATABASE_URL` (the application's login) and
 `DOCKER_MIGRATION_DATABASE_URL` (the owner) in `.env`; `host.docker.internal` reaches the host. CI builds both
 images and smoke-tests this stack on every push.

@@ -190,11 +190,15 @@ def configure_logging(level: str = "INFO", console_format: str = "console", log_
 
     if log_file:
         path = Path(log_file)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.handlers.RotatingFileHandler(path, maxBytes=MAX_FILE_BYTES, backupCount=BACKUP_FILES,
-                                                            encoding="utf-8")
-        file_handler.setFormatter(JsonFormatter())
-        root.addHandler(file_handler)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.handlers.RotatingFileHandler(path, maxBytes=MAX_FILE_BYTES,
+                                                                backupCount=BACKUP_FILES, encoding="utf-8")
+        except OSError as exc:  # e.g. a mounted folder the process may not write: keep running, log to stderr
+            get_logger(__name__).warning("log.file_unavailable", path=str(path), error=type(exc).__name__)
+        else:
+            file_handler.setFormatter(JsonFormatter())
+            root.addHandler(file_handler)
 
     for name in NOISY_LIBRARIES:
         logging.getLogger(name).setLevel(logging.WARNING)

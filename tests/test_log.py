@@ -132,3 +132,22 @@ def test_agent_run_logs_calls_without_case_data(log_file, session, world, case_i
     text = log_file.read_text()
     assert "SECRET-CASE-TEXT" not in text, "prompt/user content must not be logged"
     assert "raw_payload" not in text and REPORT["summary"] not in text
+
+
+def test_an_unwritable_log_file_does_not_stop_the_app(tmp_path, capsys):
+    """A mounted log folder the process may not write (Linux bind mounts keep the host's ownership)."""
+    import os
+
+    from finrecon_ai.log import configure_logging, get_logger
+
+    folder = tmp_path / "logs"
+    folder.mkdir()
+    os.chmod(folder, 0o500)
+    try:
+        configure_logging("INFO", "json", str(folder / "finrecon.log"))
+        get_logger("finrecon_ai.test").info("still.logging")
+    finally:
+        os.chmod(folder, 0o700)
+        configure_logging("INFO", "console", None)
+    err = capsys.readouterr().err
+    assert "log.file_unavailable" in err and "still.logging" in err
