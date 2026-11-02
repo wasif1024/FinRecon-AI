@@ -30,6 +30,8 @@ x-app: &app
     - ./logs:/app/logs  # same folder as local runs
     - ./storage:/app/storage
     - fastembed_cache:/app/.cache/fastembed
+    # The app reads its settings from .env too: `docker compose run app` without `--profile app` gets no env_file.
+    - ./.env:/app/.env:ro
   extra_hosts:
     - "host.docker.internal:host-gateway"  # for DOCKER_*_DATABASE_URL on the host
 
@@ -84,6 +86,7 @@ services:
       - ./storage:/app/storage
       - ./data:/app/data:ro  # synthetic source files for seed-demo / pipeline
       - fastembed_cache:/app/.cache/fastembed
+      - ./.env:/app/.env:ro
     depends_on:
       postgres:
         condition: service_healthy

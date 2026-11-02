@@ -54,4 +54,9 @@ await page.getByRole("button", { name: "Verify chain" }).click();
 await page.getByText(/Intact: all/).waitFor();
 await shot("audit", { clipTo: { x: 0, y: 0, width: 1440, height: 900 } });
 
+await signIn("admin@demo.finrecon.dev");
+await page.goto(`${BASE}/users`);
+await page.getByRole("heading", { name: "Add a user" }).waitFor();
+await shot("users", { clipTo: { x: 0, y: 0, width: 1440, height: 760 } });
+
 await browser.close();

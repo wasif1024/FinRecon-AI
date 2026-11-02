@@ -18,16 +18,17 @@ scripts/demo.sh   # Docker: fresh database from demo/snapshot.tar.gz, one passwo
 ```
 
 Then open http://localhost:3000. The snapshot is a real run of the agents over synthetic data (loading it calls no
-model): 31 cases across every exception category, 13 investigated with findings, cited evidence and a recommendation,
-three already decided by a second manager (executed, resolved, rejected) and ten waiting for approval, plus the
+model): 31 cases across every exception category, 16 investigated with findings, cited evidence and a recommendation,
+three already decided by a second manager (executed, resolved, rejected) and 13 waiting for approval, plus the
 policy library and an intact audit chain. Sign in as `manager@`, `approver@`, `analyst@`, `admin@` or
 `auditor@demo.finrecon.dev`; [docs/demo-script.md](docs/demo-script.md) is an eight-minute walkthrough. Only a live
 "Run AI investigation" calls Claude (about $0.90 per case).
 
 The snapshot is built with `finrecon demo export` (one tenant, exactly: ids, timestamps and the audit chain unchanged;
 no password hashes) and `finrecon demo load` (an empty database; re-indexes the policies under the same ids so cited
-passages resolve). Most of its investigations were made by the first prompt version (v1); each run shows its
-version. CI loads it and runs the browser suite against it.
+passages resolve). Three investigations come from the current agents (v3: CASE-000015 fee discrepancy, CASE-000012
+confirmed duplicate with risk analysis, CASE-000025 unmatched credit); the other thirteen from the first prompt
+version (v1). Each run shows its version. CI loads it and runs the browser suite against it.
 
 ## Screenshots
 
@@ -51,6 +52,9 @@ The resolution was approved by a second manager and executed by fixed code.
 
 **Audit trail**: append-only, hash-chained events with one-click verification.
 ![Audit trail](docs/screenshots/audit.png)
+
+**Users**: admins add colleagues, change roles and deactivate them; changes apply at once and are audited.
+![Users](docs/screenshots/users.png)
 
 Regenerate from the demo: `scripts/demo.sh`, then `cd frontend && E2E_PASSWORD=… node scripts/screenshots.mjs`.
 

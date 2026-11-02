@@ -81,7 +81,11 @@ class LangSmithWorkspaces:
         if client is None:
             from langsmith.sandbox import SandboxClient
 
-            client = SandboxClient()
+            from finrecon_ai.config import get_settings
+
+            # The key from settings (.env), not only the environment: that holds it only while tracing is on.
+            settings = get_settings()
+            client = SandboxClient(api_key=settings.langsmith_api_key, api_endpoint=settings.langsmith_endpoint)
         self.client = client
         self.idle_ttl_seconds = idle_ttl_seconds
         self.delete_after_stop_seconds = delete_after_stop_seconds

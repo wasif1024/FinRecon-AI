@@ -51,7 +51,7 @@ cat <<DONE
 
 Demo ready: http://localhost:3000  (API http://localhost:8000/docs)
   manager@demo.finrecon.dev    started the investigations; may not approve them (separation of duties)
-  approver@demo.finrecon.dev   a second manager: decides the 10 pending recommendations (Approvals)
-  analyst@demo.finrecon.dev    works assigned cases; 18 new cases can be investigated live (calls Claude)
+  approver@demo.finrecon.dev   a second manager: decides the 13 pending recommendations (Approvals)
+  analyst@demo.finrecon.dev    works assigned cases; 15 new cases can be investigated live (calls Claude)
   admin@ / auditor@            policies; read-only audit trail and its hash-chain check
 DONE

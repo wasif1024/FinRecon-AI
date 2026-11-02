@@ -21,8 +21,9 @@ scripts/demo.sh          # rebuilds the Docker demo (asks for the demo users' pa
 | CASE-000013 | Fee discrepancy: investigated, approved by a second manager, executed (now awaiting evidence) |
 | CASE-000023 | Bank reference typo: manual match approved and recorded (resolved) |
 | CASE-000005 | Anomaly: escalation rejected with a reason |
-| CASE-000031, -000022, -000029, -000016 ... | Ten recommendations waiting for approval, one per kind of problem |
-| 18 new cases | Untouched: assign, annotate, or investigate live |
+| CASE-000015, -000012, -000025 | Investigated by the current agents (v3): fee discrepancy, confirmed duplicate (with risk analysis), unmatched credit; waiting for approval |
+| CASE-000031, -000022, -000029, -000016 ... | Ten more recommendations waiting for approval (prompt v1), one per kind of problem |
+| 15 new cases | Untouched: assign, annotate, or investigate live |
 
 ## 1. The problem (0:00 to 0:45)
 
@@ -41,7 +42,7 @@ scripts/demo.sh          # rebuilds the Docker demo (asks for the demo users' pa
 > One reconciliation run over 762 records from the three sources. Match rate per leg, discrepancies per currency,
 > never added across currencies, and 31 exceptions by category, each opened as a case.
 
-Point at the cards: 18 new, 10 awaiting approval.
+Point at the cards: 15 new, 13 awaiting approval.
 
 ## 3. A finished investigation (1:30 to 3:30)
 
@@ -74,14 +75,16 @@ Open any pending case: the Actions panel says another manager must decide.
 
 ## 5. Deciding (4:15 to 5:30) as the approver
 
-**Switch** to the approver window. **Click:** Approvals, open **CASE-000016** (amount mismatch, 1.84 EUR).
+**Switch** to the approver window. **Click:** Approvals, open **CASE-000012** (confirmed duplicate, 1,778.75 GBP,
+investigated by the current agents).
 
-> The proposal: ask the bank for its charge advice before accepting the shortfall as a bank charge. Policy allows
-> it under two euros, but only with that confirmation.
+> The same settlement reached the bank twice. The investigation traced both credits, the risk analysis found no
+> customer or merchant risk, only the operational one of treating the extra money as income, and the
+> recommendation is to hold the second credit as owed to PayGate and get the bank's written confirmation before
+> anything is reversed.
 
-Choose **Approve**, add a short comment, **Record decision**. The case moves to Awaiting evidence and the
-recommendation shows Executed. Optionally open **CASE-000029** (payment burst) and **Request evidence** with a
-comment.
+Choose **Approve**, add a short comment, **Record decision**. The recommendation shows Executed and the follow-up
+steps are recorded. Optionally open **CASE-000029** (payment burst) and **Request evidence** with a comment.
 
 ## 6. Trust and audit (5:30 to 6:30) as the manager
 
