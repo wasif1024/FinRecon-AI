@@ -18,6 +18,7 @@ tools:
   - search_transactions
   - get_counterparty_history
   - find_similar_cases
+  - search_policies
 
 changelog:
   - version: v1

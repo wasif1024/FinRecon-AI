@@ -1,0 +1,46 @@
+# docker compose up -d                          -> Qdrant
+# docker compose run --rm app <command>         -> run the CLI in a container, e.g. `policies list`
+#
+# PostgreSQL runs on the host for now; the app container reaches it through host.docker.internal.
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    ports:
+      - "6333:6333"  # REST
+      - "6334:6334"  # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333'"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    profiles: ["app"]  # not started by `up`; used with `run`
+    env_file: .env
+    environment:
+      # Host Postgres as seen from the container; override with DOCKER_DATABASE_URL in .env.
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://finrecon:finrecon@host.docker.internal:5432/finrecon}
+      QDRANT_URL: http://qdrant:6333
+      LOG_FORMAT: json
+      LOG_FILE: /app/logs/finrecon.log
+      DOCUMENT_STORAGE_DIR: /app/storage/documents
+      FASTEMBED_CACHE_PATH: /app/.cache/fastembed
+    volumes:
+      - ./logs:/app/logs  # same folder as local runs
+      - ./storage:/app/storage
+      - ./data:/app/data:ro
+      - fastembed_cache:/app/.cache/fastembed
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
+volumes:
+  qdrant_data:
+  fastembed_cache:

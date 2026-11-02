@@ -32,6 +32,31 @@ every run stores a snapshot of them and every match stores which rules passed or
 The same run flags anomalies (amounts far outside a merchant's range, payment bursts) as indicators
 for review, never as fraud determinations.
 
+## Policy documents
+
+Policies and procedures (PDF, DOCX, TXT, Markdown) are split by section, embedded locally with fastembed
+(`BAAI/bge-small-en-v1.5`, no extra API key) and indexed in Qdrant per tenant. Agents search them with the
+`search_policies` tool and cite the passage's `chunk_id`. Uploading a document with the same title creates a
+new version and removes the old one from search. Only admins may upload.
+
+```bash
+docker compose up -d                                 # Qdrant
+uv run finrecon policies upload                      # indexes data/policies/ (sample policies)
+uv run finrecon policies search "late bank credit"
+uv run finrecon policies list
+```
+
+## Docker
+
+`docker compose up -d` starts Qdrant. The app runs on demand in a container against the host's PostgreSQL:
+
+```bash
+docker compose run --rm app policies search "duplicate bank credit"
+```
+
+The container writes logs to the same `./logs` folder (mounted at `/app/logs`) and keeps uploaded originals in
+`./storage`. Set `DOCKER_DATABASE_URL` in `.env` if your database credentials differ from `.env.example`.
+
 ## Cases and permissions
 
 Cases follow the SRS lifecycle (`src/finrecon_ai/cases/lifecycle.py`); every change is permission-checked

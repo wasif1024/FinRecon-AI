@@ -1,4 +1,4 @@
-"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases | prompts | agents."""
+"""Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases | policies | prompts | agents."""
 
 import argparse
 import json
@@ -96,6 +96,16 @@ def main(argv: list[str] | None = None) -> int:
     prompt_commands.add_parser("list", help="show every prompt version, its status and hash")
     prompt_commands.add_parser("lock", help="record hashes of newly released prompt versions")
 
+    policies = commands.add_parser("policies", help="policy documents for agent retrieval")
+    policy_commands = policies.add_subparsers(dest="policy_command", required=True)
+    policy_upload = policy_commands.add_parser("upload", help="upload policy files (as the demo admin)")
+    policy_upload.add_argument("paths", nargs="*", type=Path, default=[Path("data/policies")],
+                               help="files or folders (default: data/policies)")
+    policy_commands.add_parser("list", help="list policy documents")
+    policy_search = policy_commands.add_parser("search", help="semantic search over current policies")
+    policy_search.add_argument("query")
+    policy_search.add_argument("--limit", type=int, default=5)
+
     agents = commands.add_parser("agents", help="run agents")
     agent_commands = agents.add_subparsers(dest="agent_command", required=True)
     agent_try = agent_commands.add_parser("try", help="run the investigation agent on one case (calls Claude) "
@@ -150,6 +160,9 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
         if args.command == "agents":
             return _agents_try(session, tenant, args.case_number)
+
+        if args.command == "policies":
+            return _policies(session, tenant, args)
 
         keys = list(DEMO_SOURCES) if args.source == "all" else [args.source]
         if args.file and len(keys) > 1:
@@ -224,6 +237,45 @@ def _cases(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
     return 0
 
 
+def _demo_actor(session: Session, tenant: Tenant, role: RoleName) -> Actor:
+    from finrecon_ai.authz import load_actor
+
+    user = session.scalar(select(User).where(User.tenant_id == tenant.id, User.email == DEMO_USERS[role][0]))
+    assert user is not None
+    return load_actor(session, tenant.id, user.id)
+
+
+def _policies(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
+    from finrecon_ai.config import get_settings
+    from finrecon_ai.policies.service import list_policies, search_policies, upload_policy
+    from finrecon_ai.policies.store import default_store
+
+    if args.policy_command == "list":
+        for doc in list_policies(session, _demo_actor(session, tenant, RoleName.AUDITOR)):
+            print(f"{doc.status:<9} v{doc.version}  {doc.chunk_count:>3} chunks  {doc.title}  ({doc.file_name})"
+                  + (f"  error: {doc.error}" if doc.error else ""))
+        return 0
+
+    store = default_store()
+    if args.policy_command == "search":
+        for hit in search_policies(_demo_actor(session, tenant, RoleName.ANALYST), store, args.query, args.limit):
+            print(f"[{hit.score:.3f}] {hit.title} v{hit.version} › {hit.section}"
+                  + (f" (p.{hit.page})" if hit.page else "") + f"\n        {hit.text[:160].replace(chr(10), ' ')}…")
+        return 0
+
+    admin = _demo_actor(session, tenant, RoleName.ADMIN)
+    files = [f for p in args.paths for f in (sorted(p.iterdir()) if p.is_dir() else [p]) if f.is_file()]
+    for path in files:
+        result = upload_policy(session, admin, store, file_name=path.name, content=path.read_bytes(),
+                               storage_dir=Path(get_settings().document_storage_dir))
+        session.commit()
+        doc = result.document
+        state = "already uploaded" if not result.created else doc.status
+        print(f"{path.name}: {state} - {doc.title} v{doc.version}, {doc.chunk_count} chunks"
+              + (f" ({doc.error})" if doc.error else ""))
+    return 0
+
+
 def _agents_try(session: Session, tenant: Tenant, case_number: str) -> int:
     from finrecon_ai.agents.llm import default_client
     from finrecon_ai.agents.prompt_registry import load_prompt
@@ -237,8 +289,10 @@ def _agents_try(session: Session, tenant: Tenant, case_number: str) -> int:
     if case is None:
         print(f"case {case_number} not found", file=sys.stderr)
         return 1
+    from finrecon_ai.policies.store import default_store
+
     ctx = ToolContext(session=session, tenant_id=tenant.id, case=case,
-                      exception=session.get(ReconciliationException, case.exception_id))
+                      exception=session.get(ReconciliationException, case.exception_id), policy_store=default_store())
     spec = load_prompt(AgentName.INVESTIGATION)
     try:
         result = run_agent(session, spec=spec, ctx=ctx, client=default_client(),

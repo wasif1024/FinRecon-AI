@@ -21,14 +21,16 @@ class Permission(StrEnum):
     CASE_ASSIGN = "case:assign"
     CASE_DECIDE = "case:decide"  # approve / reject (Phase 4 approval workflow)
     CASE_CREATE = "case:create"
+    POLICY_READ = "policy:read"
+    POLICY_MANAGE = "policy:manage"  # upload and replace policy documents (SRS §5.3)
 
 
 ROLE_PERMISSIONS: dict[RoleName, frozenset[Permission]] = {
-    RoleName.ANALYST: frozenset({Permission.CASE_READ, Permission.CASE_WORK}),
+    RoleName.ANALYST: frozenset({Permission.CASE_READ, Permission.CASE_WORK, Permission.POLICY_READ}),
     RoleName.MANAGER: frozenset({Permission.CASE_READ, Permission.CASE_WORK, Permission.CASE_WORK_ANY,
-                                 Permission.CASE_ASSIGN, Permission.CASE_DECIDE}),
-    RoleName.ADMIN: frozenset({Permission.CASE_READ}),
-    RoleName.AUDITOR: frozenset({Permission.CASE_READ}),
+                                 Permission.CASE_ASSIGN, Permission.CASE_DECIDE, Permission.POLICY_READ}),
+    RoleName.ADMIN: frozenset({Permission.CASE_READ, Permission.POLICY_READ, Permission.POLICY_MANAGE}),
+    RoleName.AUDITOR: frozenset({Permission.CASE_READ, Permission.POLICY_READ}),
 }
 # The system actor runs automated steps (case creation after a reconciliation run). It cannot decide.
 SYSTEM_PERMISSIONS = frozenset({Permission.CASE_READ, Permission.CASE_CREATE})

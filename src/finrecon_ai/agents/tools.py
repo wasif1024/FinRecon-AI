@@ -1,8 +1,8 @@
 """Read-only tools the agents may call (SRS §7, §11: restricted agent tool permissions).
 
 Every tool is bound to one tenant and one case through ToolContext: the model cannot name another case or
-tenant. Tools only read. Each ID a tool returns is remembered in ctx.seen, so evidence the agent cites can
-be checked against what it actually retrieved.
+tenant. Tools only read. Every identifier a tool shows (UUID, source transaction ID, case number, policy chunk
+ID) is remembered, so evidence the agent cites can be resolved and checked against what it actually retrieved.
 """
 
 import statistics
@@ -30,8 +30,11 @@ from finrecon_ai.db.models import (
     exception_transactions,
     transaction_match_items,
 )
+from finrecon_ai.policies.store import PolicyStore
 
 MAX_RESULTS = 20
+MAX_POLICY_PASSAGES = 8
+AMBIGUOUS = "<ambiguous>"  # an alias shown for two different records cannot be cited by that alias
 
 
 class ToolError(Exception):
@@ -44,7 +47,25 @@ class ToolContext:
     tenant_id: uuid.UUID
     case: InvestigationCase
     exception: ReconciliationException
-    seen: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
+    policy_store: PolicyStore | None = None
+    # kind -> identifier as shown to the model -> canonical ID
+    identifiers: dict[str, dict[str, str]] = field(default_factory=lambda: defaultdict(dict))
+
+    def remember(self, kind: str, canonical: Any, *aliases: Any) -> None:
+        for alias in (canonical, *aliases):
+            if alias is None:
+                continue
+            known = self.identifiers[kind].get(str(alias))
+            self.identifiers[kind][str(alias)] = str(canonical) if known in (None, str(canonical)) else AMBIGUOUS
+
+    def resolve(self, kind: str, identifier: str) -> str | None:
+        """Canonical ID for something a tool returned during this run; None if never seen or ambiguous."""
+        value = self.identifiers.get(kind, {}).get(identifier.strip())
+        return None if value in (None, AMBIGUOUS) else value
+
+    @property
+    def seen(self) -> dict[str, set[str]]:
+        return {kind: {v for v in ids.values() if v != AMBIGUOUS} for kind, ids in self.identifiers.items()}
 
 
 @dataclass(frozen=True)
@@ -98,7 +119,8 @@ def _get_match_explanation(ctx: ToolContext, _: _NoInput) -> dict[str, Any]:
     for match in matches:
         members = ctx.session.scalars(select(transaction_match_items.c.transaction_id)
                                       .where(transaction_match_items.c.match_id == match.id)).all()
-        ctx.seen["transaction"].update(str(m) for m in members)
+        for member in members:
+            ctx.remember("transaction", member)
         result.append({"match_id": str(match.id), "classification": match.classification,
                        "strategy": match.strategy, "score": str(match.score),
                        "transaction_ids": [str(m) for m in members], "explanation": match.explanation})
@@ -194,7 +216,7 @@ def _find_similar_cases(ctx: ToolContext, args: SimilarCasesInput) -> dict[str, 
     ).all()
     result = []
     for case, cat in cases:
-        ctx.seen["historical_case"].add(str(case.id))
+        ctx.remember("historical_case", case.id, case.case_number)
         latest = ctx.session.scalar(select(ResolutionRecommendation.summary)
                                     .where(ResolutionRecommendation.case_id == case.id)
                                     .order_by(ResolutionRecommendation.version.desc()).limit(1))
@@ -202,6 +224,27 @@ def _find_similar_cases(ctx: ToolContext, args: SimilarCasesInput) -> dict[str, 
                        "title": case.title, "status": case.status, "closure_reason": case.closure_reason,
                        "latest_recommendation": latest})
     return {"category": category, "cases": result}
+
+
+class PolicySearchInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str
+    limit: int | None
+
+
+def _search_policies(ctx: ToolContext, args: PolicySearchInput) -> dict[str, Any]:
+    if ctx.policy_store is None:
+        raise ToolError("policy search is not available in this environment")
+    if not args.query.strip():
+        raise ToolError("query is empty")
+    limit = max(1, min(args.limit or 5, MAX_POLICY_PASSAGES))
+    hits = ctx.policy_store.search(tenant_id=ctx.tenant_id, query=args.query, limit=limit)
+    for hit in hits:
+        ctx.remember("policy_passage", hit.chunk_id)
+    return {"passages": [{"chunk_id": h.chunk_id, "document": h.title, "version": h.version,
+                          "section": h.section, "page": h.page, "score": h.score, "text": h.text} for h in hits],
+            "note": None if hits else "no policy passages found; say so rather than assuming what policy requires"}
 
 
 TOOLS: dict[str, Tool] = {t.name: t for t in [
@@ -221,6 +264,10 @@ TOOLS: dict[str, Tool] = {t.name: t for t in [
          CounterpartyHistoryInput, _get_counterparty_history),
     Tool("find_similar_cases", "Up to 10 other cases of the same category (or the one given), with how they were "
          "closed and the latest recommendation.", SimilarCasesInput, _find_similar_cases),
+    Tool("search_policies", "Search the organisation's current financial policies and procedures by meaning. "
+         "Returns passages with document title, version, section and chunk_id; cite the chunk_id. Write the query "
+         f"as a topic, e.g. \"acceptable variance for gateway processing fees\". limit defaults to 5, max "
+         f"{MAX_POLICY_PASSAGES}.", PolicySearchInput, _search_policies),
 ]}
 
 
@@ -241,7 +288,7 @@ def _txn_select():
 
 
 def _txn(ctx: ToolContext, t: Transaction, source_type: SourceType, include_raw: bool = False) -> dict[str, Any]:
-    ctx.seen["transaction"].add(str(t.id))
+    ctx.remember("transaction", t.id, t.source_transaction_id)
     data = {
         "id": str(t.id), "source_type": source_type, "source_transaction_id": t.source_transaction_id,
         "external_reference": t.external_reference, "transaction_date": t.transaction_date.isoformat(),

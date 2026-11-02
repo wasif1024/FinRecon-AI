@@ -14,6 +14,8 @@ class Settings(BaseSettings):
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
+    embedding_model: str = "BAAI/bge-small-en-v1.5"  # local fastembed model; changing it means re-indexing
+    document_storage_dir: str = "storage/documents"
 
     log_level: str = "INFO"
     log_format: Literal["console", "json"] = "console"  # terminal output; the file is always JSON lines

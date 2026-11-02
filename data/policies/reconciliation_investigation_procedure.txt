@@ -1,0 +1,21 @@
+Reconciliation Investigation Procedure
+
+Owner: Financial Operations. Synthetic procedure for the FinRecon AI demonstration.
+
+1. Purpose
+This procedure describes how reconciliation exceptions are investigated, documented and resolved. It applies to every investigation case, whether worked by an analyst alone or with AI assistance.
+
+2. Evidence standards
+A conclusion may only be recorded as a fact when it is supported by a source record: a gateway payment, a settlement record, a bank statement line, a policy document or written confirmation from a counterparty. Explanations that are not yet supported by such a record must be recorded as hypotheses, together with the information needed to confirm them.
+
+2.1 AI-assisted investigation
+Findings produced with AI assistance follow the same standard. AI output never resolves a case on its own: every resolution requires a human decision, and approvals follow the thresholds in the relevant policy.
+
+3. Investigation steps
+Confirm the exception against the source records. Check whether a counterpart record exists under a different reference or date. Review the counterparty's recent history. Check how similar past cases were resolved. Identify the applicable policy and its thresholds. Record the next action and any information still required.
+
+4. Requesting information from counterparties
+Requests to PayGate, banks or merchants are made in writing and logged on the case. If no reply is received within 5 business days, the request is chased once; after 10 business days it is escalated to the Financial Operations Manager.
+
+5. Closing a case
+A case may be closed as resolved after an approved resolution has been applied, as a false positive when the exception was not a real discrepancy, or as not actionable when the discrepancy is real but requires no action (for example an expected bank charge). Dismissals always require a written reason.
