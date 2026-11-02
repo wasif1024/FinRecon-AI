@@ -12,7 +12,8 @@ if not config.get_main_option("sqlalchemy.url"):  # tests set their own URL
     config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Keep the application's loggers working when migrations run in-process (tests, app startup).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

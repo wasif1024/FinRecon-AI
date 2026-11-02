@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -22,7 +23,10 @@ from finrecon_ai.db.models import (
     transaction_match_items,
 )
 from finrecon_ai.reconciliation.config import DEFAULT_CONFIG, ENGINE_VERSION, ReconciliationConfig
+from finrecon_ai.log import get_logger
 from finrecon_ai.reconciliation.engine import Txn, reconcile
+
+log = get_logger(__name__)
 
 RECONCILABLE_BATCH_STATUSES = (ImportBatchStatus.COMPLETED, ImportBatchStatus.COMPLETED_WITH_ERRORS)
 
@@ -65,15 +69,18 @@ def run_reconciliation(
                                         ReconciliationRun.idempotency_key == key)
     )
     if existing is not None:
+        log.info("reconciliation.reused_existing_run", run_id=existing.id)
         return RunResult(existing, created=False)
 
     started_at = datetime.now(UTC)
+    clock = time.perf_counter()
     rows = session.execute(
         select(Transaction, FinancialSource.source_type)
         .join(FinancialSource, FinancialSource.id == Transaction.source_id)
         .where(Transaction.tenant_id == tenant_id, Transaction.import_batch_id.in_(batch_ids))
     ).all()
     result = reconcile((_to_txn(t, source_type) for t, source_type in rows), config)
+    engine_ms = round((time.perf_counter() - clock) * 1000, 1)
 
     run = ReconciliationRun(
         tenant_id=tenant_id,
@@ -117,6 +124,9 @@ def run_reconciliation(
             for exc_id, e in zip(exception_ids, result.exceptions, strict=True) for txn_id in e.transaction_ids
         ])
 
+    log.info("reconciliation.completed", run_id=run.id, engine_version=ENGINE_VERSION, transactions=len(rows),
+             matches=len(result.matches), exceptions=len(result.exceptions), engine_ms=engine_ms,
+             duration_ms=round((time.perf_counter() - clock) * 1000, 1))
     record_event(
         session,
         tenant_id=tenant_id,

@@ -33,6 +33,9 @@ from finrecon_ai.db.models import (
     Transaction,
     exception_transactions,
 )
+from finrecon_ai.log import get_logger
+
+log = get_logger(__name__)
 
 CASE_NUMBER_PREFIX = "CASE-"
 CASE_NUMBER_LOCK = 2  # advisory-lock namespace for case numbering (audit uses the single-key space)
@@ -131,6 +134,8 @@ def create_cases_for_run(session: Session, actor: Actor, run_id: uuid.UUID,
             "case_number": case.case_number, "exception_id": exc.id, "run_id": run_id,
             "category": exc.category, "priority": case.priority,
         })
+    log.info("cases.created", run_id=run_id, created=len(cases),
+             not_qualifying=len(open_exceptions) - len(qualifying))
     return CaseCreationResult(created=list(cases), not_qualifying=len(open_exceptions) - len(qualifying))
 
 
@@ -170,6 +175,7 @@ def assign_case(session: Session, actor: Actor, case_id: uuid.UUID, assignee_id:
     previous = case.assigned_to
     case.assigned_to = assignee_id
     session.flush()
+    log.info("case.assigned", case_id=case.id, assignee_id=assignee_id, actor_id=actor.user_id)
     _audit(session, actor, case, "case.assigned", {"from": previous, "to": assignee_id})
     return case
 
@@ -206,6 +212,8 @@ def transition_case(session: Session, actor: Actor, case_id: uuid.UUID, to_statu
         case.closed_at = now
         case.closure_reason = closure_reason
     session.flush()
+    log.info("case.status_changed", case_id=case.id, from_status=current, to_status=to_status,
+             actor_id=actor.user_id)
     _audit(session, actor, case, "case.status_changed",
            {"from": current, "to": to_status, "comment": comment, "closure_reason": closure_reason})
     return case

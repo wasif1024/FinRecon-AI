@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from finrecon_ai.db.enums import ActorType
 from finrecon_ai.db.models import AuditEvent
+from finrecon_ai.log import correlation_id
 
 
 def record_event(
@@ -42,7 +43,7 @@ def record_event(
         entity_type=entity_type,
         entity_id=str(entity_id) if entity_id is not None else None,
         payload=json.loads(json.dumps(payload or {}, default=str)),
-        request_id=request_id,
+        request_id=request_id or correlation_id(),  # links the audit event to the application logs
         prev_hash=prev_hash,
     )
     event.hash = compute_hash(event)

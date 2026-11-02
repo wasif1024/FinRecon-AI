@@ -44,6 +44,27 @@ It is the ground truth for matching tests and agent evaluations. Re-importing th
 
 Source column mappings live in `financial_sources.config` (defaults in `src/finrecon_ai/ingestion/mappings.py`).
 
+## Logs
+
+Three separate records, each with its own job:
+
+| Record | Answers | Where |
+|---|---|---|
+| Application logs | How did the system behave? Timings, errors, retries, Claude calls | stderr + `logs/finrecon.log` |
+| Audit log | What happened to business data, and who did it? | `audit_events` (append-only, hash-chained) |
+| Agent executions | What did each agent do? Prompt version, tool calls, tokens, output | `agent_execution_records` |
+
+Log files are JSON lines (`jq` friendly), rotate at 10 MB and keep 5 backups. Every line carries a
+`correlation_id` that is also stored as `audit_events.request_id`, so a log line leads to its audit events.
+Logs hold IDs and counts only, never transaction contents or prompt text; secret-looking values are masked.
+Configure with `LOG_LEVEL`, `LOG_FORMAT` (`console` or `json` for the terminal) and `LOG_FILE`.
+In Docker, `./logs` is mounted at `/app/logs`, so container logs land in the same folder.
+
+```bash
+jq 'select(.event == "claude.call")' logs/finrecon.log                     # every Claude call
+jq 'select(.correlation_id == "a90f1fb721fb4a59")' logs/finrecon.log      # one command, end to end
+```
+
 ## Tests
 
 ```bash

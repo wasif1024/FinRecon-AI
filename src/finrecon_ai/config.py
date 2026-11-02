@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,6 +14,10 @@ class Settings(BaseSettings):
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
+
+    log_level: str = "INFO"
+    log_format: Literal["console", "json"] = "console"  # terminal output; the file is always JSON lines
+    log_file: str | None = "logs/finrecon.log"  # empty string disables the file
 
 
 @lru_cache

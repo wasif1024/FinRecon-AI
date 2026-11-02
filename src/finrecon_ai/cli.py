@@ -15,6 +15,7 @@ from finrecon_ai.db.enums import CaseStatus, IngestionMethod, RoleName, SourceTy
 from finrecon_ai.db.models import FinancialSource, ImportBatch, ReconciliationRun, Role, Tenant, User
 from finrecon_ai.db.session import new_session
 from finrecon_ai.ingestion.mappings import DEFAULT_MAPPINGS
+from finrecon_ai.log import configure_logging, get_logger, log_context, new_correlation_id
 from finrecon_ai.ingestion.service import IngestionError, ingest_file
 from finrecon_ai.reconciliation.service import ReconciliationError, run_reconciliation
 from finrecon_ai.synthetic.generator import BANK_FILE, GATEWAY_FILE, SETTLEMENT_FILE, generate, write_dataset
@@ -62,6 +63,9 @@ def seed_demo(session: Session) -> Tenant:
     return tenant
 
 
+log = get_logger(__name__)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="finrecon")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -99,7 +103,29 @@ def main(argv: list[str] | None = None) -> int:
     agent_try.add_argument("case_number")
 
     args = parser.parse_args(argv)
+    _setup_logging()
+    with log_context(correlation_id=new_correlation_id(), command=args.command):
+        log.info("cli.started", argv=sys.argv[1:] if argv is None else argv)
+        try:
+            code = _run(parser, args)
+        except Exception:
+            log.exception("cli.failed")
+            raise
+        log.info("cli.finished", exit_code=code)
+        return code
 
+
+def _setup_logging() -> None:
+    from finrecon_ai.config import get_settings
+
+    try:
+        settings = get_settings()
+        configure_logging(settings.log_level, settings.log_format, settings.log_file or None)
+    except Exception:  # e.g. generate-data without a .env: still log to the terminal
+        configure_logging()
+
+
+def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if args.command == "prompts":
         return _prompts(args)
 

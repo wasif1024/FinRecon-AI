@@ -21,6 +21,9 @@ from finrecon_ai.agents.tools import TOOLS, ToolContext, ToolError, run_tool
 from finrecon_ai.audit import record_event
 from finrecon_ai.db.enums import ActorType, AgentExecutionStatus
 from finrecon_ai.db.models import AgentExecutionRecord
+from finrecon_ai.log import get_logger, log_context
+
+log = get_logger(__name__)
 
 MAX_TOOL_RESULT_CHARS = 20_000
 
@@ -74,12 +77,29 @@ def run_agent(
     }
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
     tool_calls: list[dict[str, Any]] = []
+    with log_context(execution_id=execution.id, case_id=ctx.case.id, agent=manifest.id.value, prompt=spec.ref):
+        log.info("agent.started", model=manifest.model, effort=manifest.effort, tools=len(tools))
+        return _loop(session, spec, ctx, client, execution, tools, output_model, params, messages, tool_calls)
 
+
+def _loop(session: Session, spec: PromptSpec, ctx: ToolContext, client: LLMClient,
+          execution: AgentExecutionRecord, tools: dict, output_model: type[BaseModel], params: dict[str, Any],
+          messages: list[dict[str, Any]], tool_calls: list[dict[str, Any]]) -> AgentResult:
+    manifest = spec.manifest
+    started = time.perf_counter()
     try:
-        for _ in range(manifest.max_turns):
+        for turn in range(1, manifest.max_turns + 1):
+            call_started = time.perf_counter()
             response = client.create(messages=messages, **params)
             _count_tokens(execution, response)
             stop = response.stop_reason
+            usage = getattr(response, "usage", None)
+            log.info("claude.call", turn=turn, model=getattr(response, "model", manifest.model), stop_reason=stop,
+                     input_tokens=getattr(usage, "input_tokens", None),
+                     output_tokens=getattr(usage, "output_tokens", None),
+                     cache_read_tokens=getattr(usage, "cache_read_input_tokens", None),
+                     duration_ms=round((time.perf_counter() - call_started) * 1000, 1),
+                     anthropic_request_id=getattr(response, "_request_id", None))
 
             if stop == "refusal":
                 details = getattr(response, "stop_details", None)
@@ -105,15 +125,20 @@ def run_agent(
                 raise _Stop(f"output did not match {manifest.output_schema}: {exc.error_count()} errors") from None
             _finish(session, ctx, execution, tool_calls, AgentExecutionStatus.COMPLETED,
                     output=output.model_dump(mode="json"))
+            log.info("agent.completed", turns=turn, tool_calls=len(tool_calls),
+                     input_tokens=execution.input_tokens, output_tokens=execution.output_tokens,
+                     duration_ms=round((time.perf_counter() - started) * 1000, 1))
             return AgentResult(output=output, execution=execution, seen=dict(ctx.seen))
 
         raise _Stop(f"no final answer after {manifest.max_turns} turns")
     except _Stop as exc:
         _finish(session, ctx, execution, tool_calls, AgentExecutionStatus.FAILED, error=str(exc))
+        log.warning("agent.failed", reason=str(exc), tool_calls=len(tool_calls))
         raise AgentFailed(str(exc), execution) from None
     except Exception as exc:  # API errors etc.: record, then re-raise for the caller's retry policy
         _finish(session, ctx, execution, tool_calls, AgentExecutionStatus.FAILED,
                 error=f"{type(exc).__name__}: {exc}")
+        log.exception("agent.error", tool_calls=len(tool_calls))
         raise
 
 
@@ -122,7 +147,7 @@ class _Stop(Exception):
 
 
 def _call_tool(session: Session, ctx: ToolContext, execution: AgentExecutionRecord, tools: dict, block: Any,
-               log: list[dict[str, Any]]) -> dict[str, Any]:
+               log_entries: list[dict[str, Any]]) -> dict[str, Any]:
     started = time.perf_counter()
     tool = tools.get(block.name)
     error = None
@@ -137,7 +162,10 @@ def _call_tool(session: Session, ctx: ToolContext, execution: AgentExecutionReco
 
     entry = {"tool": block.name, "input": block.input, "ok": error is None, "error": error,
              "duration_ms": round((time.perf_counter() - started) * 1000, 1)}
-    log.append(entry)
+    log_entries.append(entry)
+    # Tool inputs can carry case data, so the log line keeps only name, outcome and timing.
+    (log.info if error is None else log.warning)("agent.tool_call", tool=block.name, ok=error is None,
+                                                  error=error, duration_ms=entry["duration_ms"])
     record_event(session, tenant_id=ctx.tenant_id, event_type="agent.tool_invoked", entity_type="agent_execution",
                  entity_id=execution.id, actor_type=ActorType.AGENT, agent_execution_id=execution.id, payload=entry)
     result: dict[str, Any] = {"type": "tool_result", "tool_use_id": block.id, "content": content}

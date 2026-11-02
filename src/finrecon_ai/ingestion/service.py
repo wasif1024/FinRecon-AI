@@ -4,6 +4,7 @@ The caller owns the transaction and commits.
 """
 
 import hashlib
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,6 +19,9 @@ from finrecon_ai.db.models import FinancialSource, ImportBatch, Transaction
 from finrecon_ai.ingestion.mappings import SourceMapping
 from finrecon_ai.ingestion.normalizer import RecordRejected, fingerprint, normalize_record
 from finrecon_ai.ingestion.parsers import FileRejected, parse_file, to_json_safe
+from finrecon_ai.log import get_logger
+
+log = get_logger(__name__)
 
 MAX_STORED_ERRORS = 1000
 
@@ -61,6 +65,7 @@ def ingest_file(
         )
     )
     if existing is not None:
+        log.info("ingestion.skipped_duplicate_file", source_id=source_id, batch_id=existing.id)
         return IngestResult(batch=existing, created=False)
 
     mapping = SourceMapping.model_validate(source.config["mapping"])
@@ -77,6 +82,9 @@ def ingest_file(
     )
     session.add(batch)
     session.flush()
+    started = time.perf_counter()
+    log.info("ingestion.started", source_id=source_id, batch_id=batch.id, file_format=source.ingestion_method,
+             size_bytes=len(content))
 
     rows: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
@@ -109,6 +117,7 @@ def ingest_file(
     except FileRejected as exc:
         batch.status = ImportBatchStatus.FAILED
         batch.validation_errors = [{"row": None, "errors": [{"error": str(exc)}]}]
+        log.warning("ingestion.file_rejected", batch_id=batch.id, reason=str(exc))
         return _finish(session, batch, uploaded_by)
 
     if rows:
@@ -124,6 +133,11 @@ def ingest_file(
         batch.status = ImportBatchStatus.COMPLETED_WITH_ERRORS
     else:
         batch.status = ImportBatchStatus.COMPLETED
+    log.info("ingestion.completed", batch_id=batch.id, status=batch.status, total=total, accepted=len(rows),
+             rejected=len(errors), duration_ms=round((time.perf_counter() - started) * 1000, 1))
+    if errors:
+        log.warning("ingestion.rows_rejected", batch_id=batch.id, rejected=len(errors),
+                    first_rows=[e["row"] for e in errors[:10]])
     return _finish(session, batch, uploaded_by)
 
 
