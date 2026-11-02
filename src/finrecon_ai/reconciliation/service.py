@@ -23,6 +23,7 @@ from finrecon_ai.db.models import (
     transaction_match_items,
 )
 from finrecon_ai.reconciliation.config import DEFAULT_CONFIG, ENGINE_VERSION, ReconciliationConfig
+from finrecon_ai.db.tenancy import bind_tenant
 from finrecon_ai.errors import NotFound
 from finrecon_ai.log import get_logger
 from finrecon_ai.reconciliation.engine import Txn, reconcile
@@ -55,6 +56,7 @@ def run_reconciliation(
     started_by: uuid.UUID | None = None,
     idempotency_key: str | None = None,
 ) -> RunResult:
+    bind_tenant(session, tenant_id)
     batch_ids = sorted(set(import_batch_ids), key=str)
     if not batch_ids:
         raise ReconciliationError("no import batches given")

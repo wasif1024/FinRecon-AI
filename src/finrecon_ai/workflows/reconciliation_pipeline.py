@@ -7,8 +7,8 @@ so the full workflow reads the same way in the audit trail whichever steps invol
 
 import time
 import uuid
-from collections.abc import Callable
-from contextlib import AbstractContextManager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypedDict
@@ -21,6 +21,7 @@ from finrecon_ai.authz import Actor
 from finrecon_ai.cases.service import create_cases_for_run
 from finrecon_ai.db.enums import ActorType, AgentExecutionStatus, AgentName, ImportBatchStatus
 from finrecon_ai.db.models import AgentExecutionRecord
+from finrecon_ai.db.tenancy import bind_tenant
 from finrecon_ai.ingestion.service import ingest_file
 from finrecon_ai.log import get_logger, log_context
 from finrecon_ai.reconciliation.config import ENGINE_VERSION
@@ -63,7 +64,7 @@ def run_pipeline(unit_of_work: Callable[[], AbstractContextManager[Session]], te
 def _ingest(unit_of_work, state: PipelineState) -> dict[str, Any]:
     tenant_id = uuid.UUID(state["tenant_id"])
     batch_ids, results = [], []
-    with unit_of_work() as session, _execution(session, tenant_id, AgentName.INGESTION, state["sources"]) as record:
+    with unit_of_work() as session, _scoped(session, tenant_id), _execution(session, tenant_id, AgentName.INGESTION, state["sources"]) as record:
         for source in state["sources"]:
             path = Path(source["path"])
             result = ingest_file(session, tenant_id=tenant_id, source_id=uuid.UUID(source["source_id"]),
@@ -83,7 +84,7 @@ def _ingest(unit_of_work, state: PipelineState) -> dict[str, Any]:
 
 def _reconcile(unit_of_work, state: PipelineState) -> dict[str, Any]:
     tenant_id = uuid.UUID(state["tenant_id"])
-    with unit_of_work() as session, _execution(session, tenant_id, AgentName.RECONCILIATION,
+    with unit_of_work() as session, _scoped(session, tenant_id), _execution(session, tenant_id, AgentName.RECONCILIATION,
                                                {"batch_ids": state["batch_ids"]}) as record:
         result = run_reconciliation(session, tenant_id=tenant_id,
                                     import_batch_ids=[uuid.UUID(b) for b in state["batch_ids"]])
@@ -97,6 +98,12 @@ def _open_cases(unit_of_work, state: PipelineState) -> dict[str, Any]:
     with unit_of_work() as session:
         created = create_cases_for_run(session, Actor.system(tenant_id), uuid.UUID(state["run_id"]))
         return {"cases_opened": len(created.created)}
+
+
+@contextmanager
+def _scoped(session: Session, tenant_id: uuid.UUID) -> Iterator[None]:
+    bind_tenant(session, tenant_id)  # before the execution record is written: inserts need the tenant scope
+    yield
 
 
 class _execution:

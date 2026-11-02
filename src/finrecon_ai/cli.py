@@ -49,11 +49,14 @@ DEMO_APPROVER = ("approver@demo.finrecon.dev", "Demo Approver")
 
 def seed_demo(session: Session) -> Tenant:
     """Idempotent: creates the demo tenant, its three sources and one user per role if missing."""
+    from finrecon_ai.db.tenancy import bind_tenant
+
     tenant = session.scalar(select(Tenant).where(Tenant.slug == DEMO_TENANT_SLUG))
     if tenant is None:
         tenant = Tenant(name="Demo Fintech Ltd", slug=DEMO_TENANT_SLUG)
         session.add(tenant)
         session.flush()
+    bind_tenant(session, tenant.id)  # everything below is tenant data, protected by row-level security
     for name, source_type, method, _ in DEMO_SOURCES.values():
         exists = session.scalar(
             select(FinancialSource).where(FinancialSource.tenant_id == tenant.id, FinancialSource.name == name)
@@ -370,7 +373,11 @@ def _workflow_status(case_id) -> int:
 def _print_case_summary(case_id, state: dict, paused: bool) -> None:
     from finrecon_ai.db.models import InvestigationFinding, ResolutionRecommendation
 
+    from finrecon_ai.db.tenancy import bind_tenant
+
     with new_session() as session:
+        bind_tenant(session, session.execute(
+            select(Tenant.id).where(Tenant.slug == DEMO_TENANT_SLUG)).scalar_one())
         case = session.get(InvestigationCase, case_id)
         findings = session.scalars(select(InvestigationFinding).where(InvestigationFinding.case_id == case_id)
                                    .order_by(InvestigationFinding.created_at)).all()

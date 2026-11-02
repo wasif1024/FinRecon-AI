@@ -174,7 +174,10 @@ def resume_decided(deps: WorkflowDeps, checkpointer: Any, tenant_id: uuid.UUID) 
     from finrecon_ai.db.enums import ApprovalRequestStatus
     from finrecon_ai.db.models import ApprovalDecision
 
+    from finrecon_ai.db.tenancy import bind_tenant
+
     with deps.unit_of_work() as session:
+        bind_tenant(session, tenant_id)
         rows = session.execute(
             select(ApprovalRequest.id, ApprovalRequest.case_id, ApprovalDecision)
             .join(ApprovalDecision, ApprovalDecision.approval_request_id == ApprovalRequest.id)

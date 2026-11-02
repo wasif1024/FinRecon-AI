@@ -42,7 +42,9 @@ uv run finrecon serve                                             # http://127.0
 Log in with `POST /auth/login` (`tenant`, `email`, `password`) and send the token as `Authorization: Bearer …`.
 Tokens carry identity only; roles are read from the database on every request, so a role change or
 deactivation applies immediately. Unknown tenant, unknown user, inactive user and wrong password all return the
-same 401; five failures lock an account for 15 minutes; every login is audited. Investigations and decisions
+same 401; five failures lock an account for 15 minutes (counted in the database, so shared by every API
+process); every login is audited. Tenant data is isolated by PostgreSQL row-level security as well as by the
+application — see [docs/security.md](docs/security.md). Investigations and decisions
 return `202` and continue in the background — poll `GET /cases/{id}/workflow`. Requires `JWT_SECRET` (32+
 characters) in `.env`; the API will not start without it.
 

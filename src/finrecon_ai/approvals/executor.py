@@ -36,6 +36,7 @@ from finrecon_ai.db.models import (
     exception_transactions,
     transaction_match_items,
 )
+from finrecon_ai.db.tenancy import bind_tenant
 from finrecon_ai.log import get_logger
 
 log = get_logger(__name__)
@@ -67,6 +68,7 @@ def check_executable(session: Session, case: InvestigationCase, recommendation: 
 
 def execute_approved(session: Session, actor: Actor, recommendation_id: uuid.UUID,
                      approval_decision_id: uuid.UUID) -> dict[str, Any]:
+    bind_tenant(session, actor.tenant_id)
     recommendation = session.scalar(select(ResolutionRecommendation)
                                     .where(ResolutionRecommendation.id == recommendation_id,
                                            ResolutionRecommendation.tenant_id == actor.tenant_id)

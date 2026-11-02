@@ -74,7 +74,10 @@ class Actor:
 
 
 def load_actor(session: Session, tenant_id: uuid.UUID, user_id: uuid.UUID) -> Actor:
-    """Roles always come from the database, never from the request."""
+    """Roles always come from the database, never from the request. Scopes the session to the tenant."""
+    from finrecon_ai.db.tenancy import bind_tenant
+
+    bind_tenant(session, tenant_id)
     user = session.scalar(
         select(User).options(selectinload(User.roles)).where(User.id == user_id, User.tenant_id == tenant_id)
     )

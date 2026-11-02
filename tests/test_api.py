@@ -17,6 +17,7 @@ from finrecon_ai.cli import DEMO_SOURCES, DEMO_USERS
 from finrecon_ai.config import Settings
 from finrecon_ai.db.enums import CaseStatus, ExceptionCategory, RoleName
 from finrecon_ai.db.models import AuditEvent, FinancialSource, Role, Tenant, User
+from finrecon_ai.db.tenancy import bypass_rls, unbind
 from finrecon_ai.workflows.case_investigation import WorkflowDeps
 from tests.fakes import AgentScripts
 from tests.test_approvals import proposal_steps
@@ -32,24 +33,39 @@ def scripts():
     return type("Scripts", (), {"llm": AgentScripts()})()
 
 
-@pytest.fixture
-def client(session, world, store, scripts):
+def strict_unit_of_work(session):
+    """Each request (and each workflow node) runs as production does: no tenant bound, no RLS bypass, until the
+    application binds one. Setup outside requests keeps the fixture's bypass."""
+
     @contextmanager
     def unit_of_work():
-        yield session
+        unbind(session)
+        try:
+            yield session
+        finally:
+            bypass_rls(session)
 
-    saver = InMemorySaver()
+    return unit_of_work
+
+
+def make_client(session, store, scripts, saver):
+    unit_of_work = strict_unit_of_work(session)
     rt = Runtime(
         jwt_secret=SECRET, jwt_ttl_minutes=60, unit_of_work=unit_of_work,
         workflow_deps=lambda: WorkflowDeps(unit_of_work=unit_of_work, llm=scripts.llm, policy_store=store),
         checkpointer=lambda: nullcontext(saver), policy_store=lambda: store,
         run_lock=lambda case_id: nullcontext(True), throttle=LoginThrottle(max_failures=3),
     )
+    app = create_app(Settings(database_url="postgresql+psycopg://unused/x", jwt_secret=SECRET, log_file=""), rt)
+    return TestClient(app)
+
+
+@pytest.fixture
+def client(session, world, store, scripts):
     for user in session.scalars(select(User).where(User.tenant_id == world[0].id)):
         user.password_hash = hash_password(PASSWORD)
     session.flush()
-    app = create_app(Settings(database_url="postgresql+psycopg://unused/x", jwt_secret=SECRET, log_file=""), rt)
-    return TestClient(app)
+    return make_client(session, store, scripts, InMemorySaver())
 
 
 from tests.test_workflows import store  # noqa: E402,F401 (fixture)
@@ -117,6 +133,23 @@ def test_repeated_failures_lock_the_account(client):
     for _ in range(3):
         assert login(client, RoleName.ANALYST, "wrong password!!").status_code == 401
     assert login(client, RoleName.ANALYST).status_code == 429, "even the right password is refused while locked"
+
+
+def test_lockout_is_shared_between_api_instances(session, store, scripts, client):
+    """Two API processes: failures through one lock the account on the other (counted in the database)."""
+    second = make_client(session, store, scripts, InMemorySaver())
+    for api in (client, second, client):
+        assert login(api, RoleName.ANALYST, "wrong password!!").status_code == 401
+    assert login(second, RoleName.ANALYST).status_code == 429
+
+
+def test_successful_login_resets_the_count(client):
+    for _ in range(2):
+        login(client, RoleName.ANALYST, "wrong password!!")
+    assert login(client, RoleName.ANALYST).status_code == 200
+    for _ in range(2):
+        login(client, RoleName.ANALYST, "wrong password!!")
+    assert login(client, RoleName.ANALYST).status_code == 200, "only failures since the last success count"
 
 
 def test_failed_login_is_audited(session, world, client):

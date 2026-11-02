@@ -14,6 +14,7 @@ from finrecon_ai.cases.service import create_cases_for_run
 from finrecon_ai.cli import DEMO_SOURCES, DEMO_USERS, seed_demo
 from finrecon_ai.config import get_settings
 from finrecon_ai.db.models import FinancialSource, User
+from finrecon_ai.db.tenancy import bypass_rls
 from finrecon_ai.ingestion.service import ingest_file
 from finrecon_ai.reconciliation.service import run_reconciliation
 from finrecon_ai.synthetic.generator import generate, write_dataset
@@ -50,6 +51,9 @@ def session(engine: Engine) -> Iterator[Session]:
     with engine.connect() as connection:
         transaction = connection.begin()
         session = Session(bind=connection, join_transaction_mode="create_savepoint", expire_on_commit=False)
+        # Test setup reads and writes across tenants. Row-level security itself is tested in test_tenancy.py and
+        # through the API tests, whose requests run strictly scoped.
+        bypass_rls(session)
         try:
             yield session
         finally:

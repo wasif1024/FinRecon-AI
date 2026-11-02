@@ -27,6 +27,7 @@ from finrecon_ai.db.enums import (
     RecommendationStatus,
 )
 from finrecon_ai.db.models import ApprovalDecision, ApprovalRequest, InvestigationEvidence, ResolutionRecommendation
+from finrecon_ai.db.tenancy import bind_tenant
 from finrecon_ai.errors import NotFound
 from finrecon_ai.log import get_logger
 
@@ -57,6 +58,7 @@ class ApprovalNotFound(NotFound, ApprovalError):
 
 def list_pending(session: Session, actor: Actor) -> list[ApprovalRequest]:
     actor.require(Permission.CASE_DECIDE)
+    bind_tenant(session, actor.tenant_id)
     return list(session.scalars(select(ApprovalRequest)
                                 .where(ApprovalRequest.tenant_id == actor.tenant_id,
                                        ApprovalRequest.status == ApprovalRequestStatus.PENDING)
@@ -66,6 +68,7 @@ def list_pending(session: Session, actor: Actor) -> list[ApprovalRequest]:
 def decide(session: Session, actor: Actor, request_id: uuid.UUID, decision: ApprovalDecisionType, *,
            comment: str | None = None, evidence_considered_ids: list[uuid.UUID] | None = None) -> ApprovalDecision:
     actor.require(Permission.CASE_DECIDE)
+    bind_tenant(session, actor.tenant_id)
     request = session.scalar(select(ApprovalRequest).where(ApprovalRequest.id == request_id,
                                                            ApprovalRequest.tenant_id == actor.tenant_id)
                              .with_for_update())

@@ -34,6 +34,7 @@ from finrecon_ai.db.models import (
     Transaction,
     exception_transactions,
 )
+from finrecon_ai.db.tenancy import bind_tenant
 from finrecon_ai.errors import NotFound
 from finrecon_ai.log import get_logger
 
@@ -94,6 +95,7 @@ def create_cases_for_run(session: Session, actor: Actor, run_id: uuid.UUID,
                          policy: CasePolicy = DEFAULT_CASE_POLICY) -> CaseCreationResult:
     """Idempotent: exceptions that already have a case are skipped."""
     actor.require(Permission.CASE_CREATE)
+    bind_tenant(session, actor.tenant_id)
     run = session.scalar(select(ReconciliationRun).where(ReconciliationRun.id == run_id,
                                                          ReconciliationRun.tenant_id == actor.tenant_id))
     if run is None:
@@ -143,6 +145,7 @@ def create_cases_for_run(session: Session, actor: Actor, run_id: uuid.UUID,
 
 def get_case(session: Session, actor: Actor, case_id: uuid.UUID, *, for_update: bool = False) -> InvestigationCase:
     actor.require(Permission.CASE_READ)
+    bind_tenant(session, actor.tenant_id)
     query = select(InvestigationCase).where(InvestigationCase.id == case_id,
                                             InvestigationCase.tenant_id == actor.tenant_id)
     case = session.scalar(query.with_for_update() if for_update else query)
@@ -154,6 +157,7 @@ def get_case(session: Session, actor: Actor, case_id: uuid.UUID, *, for_update: 
 def list_cases(session: Session, actor: Actor, *, status: CaseStatus | None = None,
                assigned_to: uuid.UUID | None = None) -> list[InvestigationCase]:
     actor.require(Permission.CASE_READ)
+    bind_tenant(session, actor.tenant_id)
     query = select(InvestigationCase).where(InvestigationCase.tenant_id == actor.tenant_id)
     if status is not None:
         query = query.where(InvestigationCase.status == status)

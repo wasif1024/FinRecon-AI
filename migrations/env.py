@@ -45,6 +45,9 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        # Migrations work across tenants: bypass row-level security for this connection only.
+        connection.exec_driver_sql("SELECT set_config('app.rls_bypass', 'on', false)")
+        connection.commit()  # session-level setting stays; Alembic must start its own transaction to commit
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

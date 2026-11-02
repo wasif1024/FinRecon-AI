@@ -19,6 +19,7 @@ from finrecon_ai.db.models import FinancialSource, ImportBatch, Transaction
 from finrecon_ai.ingestion.mappings import SourceMapping
 from finrecon_ai.ingestion.normalizer import RecordRejected, fingerprint, normalize_record
 from finrecon_ai.ingestion.parsers import FileRejected, parse_file, to_json_safe
+from finrecon_ai.db.tenancy import bind_tenant
 from finrecon_ai.errors import NotFound
 from finrecon_ai.log import get_logger
 
@@ -51,6 +52,7 @@ def ingest_file(
     storage_uri: str | None = None,
     uploaded_by: uuid.UUID | None = None,
 ) -> IngestResult:
+    bind_tenant(session, tenant_id)
     source = session.scalar(
         select(FinancialSource).where(FinancialSource.id == source_id, FinancialSource.tenant_id == tenant_id)
     )

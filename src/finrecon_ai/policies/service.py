@@ -17,6 +17,7 @@ from finrecon_ai.audit import record_event
 from finrecon_ai.authz import Actor, Permission
 from finrecon_ai.db.enums import ActorType, PolicyDocumentStatus
 from finrecon_ai.db.models import PolicyDocument
+from finrecon_ai.db.tenancy import bind_tenant
 from finrecon_ai.log import get_logger
 from finrecon_ai.policies.chunking import chunk_sections
 from finrecon_ai.policies.parsing import DocumentRejected, parse_document
@@ -34,6 +35,7 @@ class UploadResult:
 def upload_policy(session: Session, actor: Actor, store: PolicyStore, *, file_name: str, content: bytes,
                   storage_dir: Path, title: str | None = None) -> UploadResult:
     actor.require(Permission.POLICY_MANAGE)
+    bind_tenant(session, actor.tenant_id)
     file_sha256 = hashlib.sha256(content).hexdigest()
     existing = session.scalar(select(PolicyDocument).where(PolicyDocument.tenant_id == actor.tenant_id,
                                                            PolicyDocument.file_sha256 == file_sha256))
@@ -99,6 +101,7 @@ def upload_policy(session: Session, actor: Actor, store: PolicyStore, *, file_na
 
 def list_policies(session: Session, actor: Actor, *, include_archived: bool = False) -> list[PolicyDocument]:
     actor.require(Permission.POLICY_READ)
+    bind_tenant(session, actor.tenant_id)
     query = select(PolicyDocument).where(PolicyDocument.tenant_id == actor.tenant_id)
     if not include_archived:
         query = query.where(PolicyDocument.status != PolicyDocumentStatus.ARCHIVED)

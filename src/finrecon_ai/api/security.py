@@ -4,10 +4,7 @@ Tokens carry identity only (user, tenant). Roles are loaded from the database on
 or deactivation takes effect immediately rather than when the token expires.
 """
 
-import threading
-import time
 import uuid
-from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -67,30 +64,27 @@ def decode_token(token: str, secret: str) -> TokenClaims:
         raise InvalidToken(str(exc)) from None
 
 
+@dataclass(frozen=True)
 class LoginThrottle:
-    """Blocks an account after repeated failures. In-process only: run one API process, or move this to a
-    shared store before scaling out."""
+    """Account lockout counted from the audit log: shared by every API process, survives restarts, and the
+    evidence cannot be cleared (audit_events is append-only). Counts failures since the last success."""
 
-    def __init__(self, max_failures: int = 5, window_seconds: int = 900):
-        self.max_failures = max_failures
-        self.window = window_seconds
-        self._failures: dict[str, deque[float]] = defaultdict(deque)
-        self._lock = threading.Lock()
+    max_failures: int = 5
+    window_seconds: int = 900
 
-    def blocked(self, key: str) -> bool:
-        with self._lock:
-            return len(self._recent(key)) >= self.max_failures
+    def blocked(self, session, tenant_id: uuid.UUID, email: str) -> bool:
+        from sqlalchemy import func, select
 
-    def failure(self, key: str) -> None:
-        with self._lock:
-            self._recent(key).append(time.monotonic())
+        from finrecon_ai.db.models import AuditEvent
 
-    def success(self, key: str) -> None:
-        with self._lock:
-            self._failures.pop(key, None)
-
-    def _recent(self, key: str) -> deque[float]:
-        attempts = self._failures[key]
-        while attempts and time.monotonic() - attempts[0] > self.window:
-            attempts.popleft()
-        return attempts
+        since = datetime.now(UTC) - timedelta(seconds=self.window_seconds)
+        last_success = session.scalar(
+            select(func.max(AuditEvent.occurred_at)).where(
+                AuditEvent.tenant_id == tenant_id, AuditEvent.event_type == "auth.login_succeeded",
+                AuditEvent.payload["email"].astext == email))
+        cutoff = max(since, last_success) if last_success else since
+        failures = session.scalar(
+            select(func.count()).select_from(AuditEvent).where(
+                AuditEvent.tenant_id == tenant_id, AuditEvent.event_type == "auth.login_failed",
+                AuditEvent.payload["email"].astext == email, AuditEvent.occurred_at > cutoff))
+        return failures >= self.max_failures

@@ -52,3 +52,6 @@ class TenantMixin:
     """Every tenant-owned row carries tenant_id for isolation (SRS §11)."""
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="RESTRICT"), index=True)
+
+# Registers the session hook that applies the tenant scope to every transaction (row-level security).
+from finrecon_ai.db import tenancy  # noqa: E402,F401
