@@ -43,10 +43,11 @@ class Settings(BaseSettings):
     sandbox_idle_ttl_seconds: int = 600
     sandbox_delete_after_stop_seconds: int = 7 * 24 * 3600
 
-    # LangGraph Agent Server (`langgraph dev`) and LangSmith Studio. Studio runs act as this user, through the
-    # same permission checks as the API, and only in development.
+    # LangGraph Agent Server (`langgraph dev`) and LangSmith Studio: a development tool. Production runs every
+    # workflow in the API process (README, Deployment). Studio runs act as this user, through the same permission
+    # checks as the API.
     environment: Literal["development", "production"] = "development"
-    agent_server_url: str = "http://127.0.0.1:2024"
+    agent_server_url: str | None = "http://127.0.0.1:2024"  # empty: no Agent Server
     studio_tenant_slug: str = "demo"
     studio_actor_email: str = "manager@demo.finrecon.dev"
     batch_max_cases: int = 5  # case investigations one batch-investigator run may start (each calls Claude)
@@ -54,6 +55,11 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: Literal["console", "json"] = "console"  # terminal output; the file is always JSON lines
     log_file: str | None = "logs/finrecon.log"  # empty string disables the file
+
+    @property
+    def uses_agent_server(self) -> bool:
+        """Whether runs may live on an Agent Server: development with AGENT_SERVER_URL set. Never in production."""
+        return self.environment == "development" and bool(self.agent_server_url)
 
     @property
     def owner_database_url(self) -> str:

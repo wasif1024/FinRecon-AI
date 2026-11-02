@@ -288,7 +288,12 @@ def _agent_server_client():
 
 def agent_server_thread_pending(thread_id: str) -> bool:
     """Whether an Agent Server thread is still running or waiting. Unreachable counts as pending: a case is
-    never started twice because the server that owns it is down."""
+    never started twice because the server that owns it is down. Where there is no Agent Server (production), a
+    thread left from development cannot be running, and the case may start here."""
+    from finrecon_ai.config import get_settings
+
+    if not get_settings().uses_agent_server:
+        return False
     try:
         return bool(_agent_server_client().threads.get_state(thread_id).get("next"))
     except Exception:  # noqa: BLE001 (any failure means we cannot tell)
@@ -298,6 +303,11 @@ def agent_server_thread_pending(thread_id: str) -> bool:
 
 def resume_on_agent_server(thread_id: str, decision: dict[str, Any]) -> WorkflowResult:
     from finrecon_ai.agent_server import CASE_GRAPH_ID
+    from finrecon_ai.config import get_settings
+
+    if not get_settings().uses_agent_server:
+        raise WorkflowError("this case's run was started on the Agent Server (Studio), which this deployment does not "
+                            "use, so it cannot be resumed here")
 
     client = _agent_server_client()
     values = client.runs.wait(thread_id, CASE_GRAPH_ID, command={"resume": decision})

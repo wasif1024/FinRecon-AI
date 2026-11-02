@@ -75,3 +75,23 @@ def test_unreachable_agent_server_counts_as_pending(monkeypatch):
 
     monkeypatch.setattr(wf, "_agent_server_client", lambda: Down)
     assert wf.agent_server_thread_pending("t") is True
+
+
+def test_without_an_agent_server_studio_threads_do_not_block_or_hang(session, world, fee_case, make_deps,
+                                                                     monkeypatch):
+    """Production runs every workflow in the API: a thread left from Studio cannot be running there."""
+    monkeypatch.setattr(get_settings(), "environment", "production")
+    monkeypatch.setattr(wf, "_agent_server_client", lambda: pytest.fail("production never calls an Agent Server"))
+    assert not get_settings().uses_agent_server
+    assert wf.agent_server_thread_pending("studio-thread") is False
+
+    fee_case.workflow_thread_id = "studio-thread"
+    session.flush()
+    wf.authorize_start(make_deps(None), InMemorySaver(), world[2][RoleName.MANAGER], fee_case.id)
+    with pytest.raises(wf.WorkflowError, match="cannot be resumed here"):
+        wf.resume_case(make_deps(None), InMemorySaver(), fee_case.id, {"approval_decision_id": "d1"})
+
+
+def test_an_empty_agent_server_url_means_none(monkeypatch):
+    monkeypatch.setattr(get_settings(), "agent_server_url", "")
+    assert not get_settings().uses_agent_server

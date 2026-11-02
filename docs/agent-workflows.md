@@ -47,7 +47,12 @@ graph TD
 | Started from | Thread | Checkpoints | Approval resumes it via |
 |---|---|---|---|
 | API, CLI | `case:<case_id>` | PostgreSQL (`PostgresSaver`), with each Deep Agent's turns under its step | `resume_case` here |
-| Studio (`langgraph dev`) | the Agent Server's thread | the Agent Server | `resume_on_agent_server` (SDK) |
+| Studio (`langgraph dev`), development only | the Agent Server's thread | the Agent Server | `resume_on_agent_server` (SDK) |
+
+Production runs every workflow in the API process (the first row): the Agent Server is a development tool and is
+not deployed. With `ENVIRONMENT=production` (or `AGENT_SERVER_URL` empty) nothing calls one: a thread left from
+Studio cannot be running, so that case may start again in the API, and resuming such a thread fails with a clear
+error instead of waiting on a server that is not there.
 
 `cases.workflow_thread_id` records which. Before any start, `authorize_start` checks permission, assignment,
 status, and that no run of the case is still pending in either place. The paused step accepts only a decision

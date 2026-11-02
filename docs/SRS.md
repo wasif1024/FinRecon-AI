@@ -1,7 +1,7 @@
 # FinRecon AI
 ## Software Requirements Specification (SRS)
 
-**Version:** 1.4  
+**Version:** 1.5  
 **Date:** November 2026  
 **Project:** FinRecon AI – Agentic Financial Reconciliation & Investigation Platform  
 **Status:** Revised Requirements Baseline
@@ -17,6 +17,7 @@
 | 1.2 | November 2026 | Agent stack made explicit: LLM agents are built with LangChain Deep Agents on LangChain (ChatAnthropic, LangChain tools) inside the LangGraph workflow; LangSmith is required for tracing, monitoring and evaluation (§7, §8, §9, §13). |
 | 1.3 | November 2026 | Deep Agents standards (§7): one LangSmith sandbox per case as the agents' file workspace (no code execution), an operating-manual memory and per-category playbook skills, smaller models for narrow subagents, coordinator agents on the LangGraph Agent Server (operations assistant with a background batch investigator), and recovery of interrupted runs (§8). |
 | 1.4 | November 2026 | Communication made specific: the case work (identity, cases, investigation workflow, approvals) is a Connect RPC / gRPC contract in protobuf, managed with Buf, used by the dashboard's server; REST remains for external clients, file transfer and the remaining pages. |
+| 1.5 | November 2026 | Deployment of agent runs decided (§7, §9): production runs every case workflow inside the API process, made durable by PostgreSQL checkpoints, startup recovery of interrupted runs and one run per case at a time. The LangGraph Agent Server (LangSmith Studio, coordinator agents, evaluation runs) is a development tool and is not deployed, so neither Redis nor an Agent Server licence is required. |
 
 ---
 
@@ -392,7 +393,7 @@ The LLM-based agents (Investigation, Risk Analysis, Resolution) shall be impleme
 - **Structured output:** each agent returns a schema-validated report; cited identifiers are verified against what the tools returned before anything is stored.
 - **Auditing:** every tool call, including subagents' and the harness's own tools, is recorded and audited (FR-12).
 
-Coordinator agents on the LangGraph Agent Server (development and operations): an operations assistant that reports case status and starts a background batch investigator (an asynchronous subagent), which starts one audited case workflow per case, capped per batch. Coordinators cannot investigate or decide cases themselves.
+Coordinator agents on the LangGraph Agent Server (development only; see §9 Deployment): an operations assistant that reports case status and starts a background batch investigator (an asynchronous subagent), which starts one audited case workflow per case, capped per batch. Coordinators cannot investigate or decide cases themselves.
 
 The Transaction Ingestion and Reconciliation responsibilities (7.1, 7.2) are performed by deterministic LangGraph workflow nodes; no LLM is involved in moving or matching financial records.
 
@@ -515,7 +516,7 @@ A typical reconciliation workflow:
 - REST APIs: the public API (OpenAPI), file uploads and downloads, and the read-only insight pages.
 - Connect RPC / gRPC for internal service communication: the case work contract (`proto/finrecon/v1`, managed with
   Buf) between the dashboard's server and the API, served as Connect and gRPC on the API's port. Agents run out of
-  process on the LangGraph Agent Server, reached through its own API.
+  process on the LangGraph Agent Server in development (Studio, evaluation), reached through its own API.
 
 ## Observability
 - OpenTelemetry.
@@ -528,6 +529,10 @@ A typical reconciliation workflow:
 - Docker Compose.
 - GitHub Actions.
 - Environment-based configuration.
+- Agent runs in production execute inside the API process, not on a separately deployed Agent Server: each case
+  workflow is checkpointed in PostgreSQL, interrupted runs are finished at startup, and an advisory lock allows one
+  run per case. The LangGraph Agent Server is used in development only (Studio, coordinator agents, evaluation
+  experiments); production does not require Redis or an Agent Server licence.
 
 # 10. Data Model Requirements
 

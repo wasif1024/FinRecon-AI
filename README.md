@@ -191,7 +191,14 @@ checks as the API: permission, assignment, status, and no other run of the case 
 Only the approval service decides: record the decision in the dashboard or with `finrecon approvals decide`, and
 the run is resumed on the Agent Server; a resume value typed into Studio is refused unless it names that recorded
 decision. The graphs are refused unless `ENVIRONMENT=development`. `langgraph dev` keeps its threads in
-`.langgraph_api/`; a deployed Agent Server keeps them in PostgreSQL (and needs Redis and a license key; see Phase 6).
+`.langgraph_api/`.
+
+**In production the Agent Server is not deployed.** Every case workflow runs in the API process, which already makes
+runs durable: checkpoints in PostgreSQL, interrupted runs finished at startup (`RECOVER_ON_STARTUP`), and one run
+per case at a time (an advisory lock). That needs no Redis and no LangGraph licence. A deployed Agent Server would
+add Studio against production and the coordinator agents, at the cost of Redis plus an Enterprise licence key
+(self-hosted) or a LangSmith Deployment plan. With `ENVIRONMENT=production` the Agent Server graphs refuse to load
+and nothing calls one (`Settings.uses_agent_server`); see [docs/agent-workflows.md](docs/agent-workflows.md).
 
 ## Agent workspace, memory and skills
 
