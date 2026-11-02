@@ -36,6 +36,13 @@ async def upload_import(source_id: uuid.UUID, file: UploadFile, response: Respon
     return result.batch
 
 
+@router.get("/imports", response_model=list[ImportBatchOut])
+def list_imports(actor: Actor = Depends(current_actor), session: Session = Depends(get_session)):
+    actor.require(Permission.CASE_READ)
+    return session.scalars(select(ImportBatch).where(ImportBatch.tenant_id == actor.tenant_id)
+                           .order_by(ImportBatch.created_at.desc()).limit(100)).all()
+
+
 @router.get("/imports/{batch_id}", response_model=ImportBatchDetailOut)
 def get_import(batch_id: uuid.UUID, actor: Actor = Depends(current_actor), session: Session = Depends(get_session)):
     actor.require(Permission.CASE_READ)

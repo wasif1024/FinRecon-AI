@@ -12,7 +12,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from finrecon_ai.api.deps import Runtime
-from finrecon_ai.api.routes import approvals, audit, auth, cases, health, policies, reconciliation, sources, users
+from finrecon_ai.api.routes import (
+    approvals,
+    audit,
+    auth,
+    cases,
+    health,
+    policies,
+    reconciliation,
+    reports,
+    sources,
+    users,
+)
 from finrecon_ai.api.security import MIN_SECRET_LENGTH, LoginThrottle
 from finrecon_ai.approvals.executor import ExecutionError
 from finrecon_ai.approvals.service import ApprovalError
@@ -78,7 +89,7 @@ def create_app(settings: Settings | None = None, rt: Runtime | None = None) -> F
     for error_type, status_code in ERROR_STATUS:
         app.add_exception_handler(error_type, _handler(status_code))
 
-    for module in (health, auth, users, sources, reconciliation, cases, approvals, policies, audit):
+    for module in (health, auth, users, sources, reconciliation, cases, approvals, policies, reports, audit):
         app.include_router(module.router)
     return app
 

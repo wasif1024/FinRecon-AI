@@ -326,6 +326,17 @@ class AuditEventOut(Out):
     hash: str
 
 
+class ReportOut(BaseModel):
+    kind: str
+    title: str
+    generated_at: datetime
+    period: str
+    columns: list[str]
+    rows: list[list[str | int | float | None]]
+    totals: dict[str, str]
+    notes: list[str]
+
+
 class ChainCheckOut(BaseModel):
     intact: bool
     first_bad_event_id: int | None

@@ -63,3 +63,21 @@ function detailOf(error: unknown, response: Response): string {
   }
   return `${response.status} ${response.statusText}`;
 }
+
+/** Multipart upload to the API (file imports, policy documents). Same auth and error handling as api(). */
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  await connection();
+  const token = await getToken();
+  const response = await fetch(`${baseUrl()}${path}`, {
+    method: "POST", body: form, cache: "no-store", headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const body = await response.json().catch(() => undefined);
+  return unwrap<T>({ data: response.ok ? (body as T) : undefined, error: body, response });
+}
+
+/** Raw response for file downloads (CSV, PDF); the caller streams it to the browser. */
+export async function apiDownload(path: string): Promise<Response> {
+  await connection();
+  const token = await getToken();
+  return fetch(`${baseUrl()}${path}`, { cache: "no-store", headers: token ? { Authorization: `Bearer ${token}` } : {} });
+}

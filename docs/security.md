@@ -51,6 +51,11 @@ attacker who can run arbitrary SQL, who could change the setting; that is preven
 - Application logs carry IDs and counts only; secret-looking values are masked. Unexpected API errors return a
   generic body with the request ID, never internals.
 - Uploaded files are size- and type-checked before parsing; corrupt, encrypted and zip-bomb documents are refused.
+- CSV report exports neutralise cells a spreadsheet would execute (leading `=`, `+`, `-`, `@`, tab, carriage
+  return) with a leading quote, while genuine negative amounts stay numbers (`reports/service.py::safe_cell`,
+  `test_reports.py`).
+- The dashboard keeps the API token in an httpOnly cookie on the Next.js server; browser JavaScript never sees it,
+  and downloads and live-progress polling go through server-side route handlers.
 
 ## Security test suite (`tests/security/`)
 
@@ -79,6 +84,4 @@ planted instruction and is not steered by it. It calls Claude (about $0.50), so 
 
 ### Open items
 
-- CSV and spreadsheet exports (Phase 5) must neutralise values starting with `=`, `+`, `-` or `@`: imported data
-  is stored verbatim and can contain formulas.
 - Separate database role for the API (Phase 6), see Tenant isolation above.

@@ -112,6 +112,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Imports */
+        get: operations["list_imports_imports_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/imports/{batch_id}": {
         parameters: {
             query?: never;
@@ -372,6 +389,26 @@ export interface paths {
         };
         /** Search */
         get: operations["search_policies_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/reports/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report
+         * @description FR-11 reports. Totals are per currency; CSV cells that would run as spreadsheet formulas are neutralised.
+         */
+        get: operations["report_reports__kind__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -952,6 +989,35 @@ export interface components {
          */
         RecommendationStatus: "draft" | "pending_approval" | "approved" | "rejected" | "superseded" | "executed";
         /**
+         * ReportKind
+         * @enum {string}
+         */
+        ReportKind: "reconciliation-summary" | "outstanding-exceptions" | "unmatched-transactions" | "duplicates" | "resolution-statistics";
+        /** ReportOut */
+        ReportOut: {
+            /** Kind */
+            kind: string;
+            /** Title */
+            title: string;
+            /**
+             * Generated At
+             * Format: date-time
+             */
+            generated_at: string;
+            /** Period */
+            period: string;
+            /** Columns */
+            columns: string[];
+            /** Rows */
+            rows: (string | number | null)[][];
+            /** Totals */
+            totals: {
+                [key: string]: string;
+            };
+            /** Notes */
+            notes: string[];
+        };
+        /**
          * ResolutionType
          * @enum {string}
          */
@@ -1296,6 +1362,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_imports_imports_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportBatchOut"][];
                 };
             };
         };
@@ -1819,6 +1905,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyHitOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_reports__kind__get: {
+        parameters: {
+            query?: {
+                format?: "json" | "csv" | "pdf";
+                from?: string | null;
+                to?: string | null;
+                run_id?: string | null;
+            };
+            header?: never;
+            path: {
+                kind: components["schemas"]["ReportKind"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOut"];
+                    "text/csv": unknown;
+                    "application/pdf": unknown;
                 };
             };
             /** @description Validation Error */
