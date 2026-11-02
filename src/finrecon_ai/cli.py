@@ -155,6 +155,9 @@ def main(argv: list[str] | None = None) -> int:
     set_password.add_argument("email")
     set_password.add_argument("--password-stdin", action="store_true", help="read the password from stdin")
 
+    openapi = commands.add_parser("openapi", help="write the API's OpenAPI schema (no database needed)")
+    openapi.add_argument("--out", type=Path, default=Path("frontend/openapi.json"))
+
     serve = commands.add_parser("serve", help="run the REST API")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
@@ -188,6 +191,19 @@ def _setup_logging() -> None:
 def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if args.command == "prompts":
         return _prompts(args)
+
+    if args.command == "openapi":
+        from finrecon_ai.api.app import create_app
+        from finrecon_ai.api.deps import Runtime
+        from finrecon_ai.api.security import LoginThrottle
+        from finrecon_ai.config import Settings
+
+        # The schema depends only on the routes, so build the app with inert placeholders.
+        placeholder = Runtime("schema-only-" + "x" * 32, 60, None, None, None, None, None, LoginThrottle())
+        app = create_app(Settings(database_url="postgresql+psycopg://schema/only"), placeholder)
+        args.out.write_text(json.dumps(app.openapi(), indent=2) + "\n")
+        print(f"wrote {args.out}")
+        return 0
 
     if args.command == "serve":
         import uvicorn

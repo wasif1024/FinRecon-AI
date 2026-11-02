@@ -1,4 +1,5 @@
 # docker compose up -d                          -> Qdrant
+# docker compose --profile web up -d --build    -> Qdrant + API (:8000) + dashboard (:3000)
 # docker compose run --rm app <command>         -> run the CLI in a container, e.g. `policies list`
 #
 # PostgreSQL runs on the host for now; the app container reaches it through host.docker.internal.
@@ -40,6 +41,42 @@ services:
     depends_on:
       qdrant:
         condition: service_healthy
+
+  api:
+    build: .
+    profiles: ["web"]
+    command: ["serve", "--host", "0.0.0.0", "--port", "8000"]
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql+psycopg://finrecon:finrecon@host.docker.internal:5432/finrecon}
+      QDRANT_URL: http://qdrant:6333
+      LOG_FORMAT: json
+      LOG_FILE: /app/logs/finrecon.log
+      DOCUMENT_STORAGE_DIR: /app/storage/documents
+      FASTEMBED_CACHE_PATH: /app/.cache/fastembed
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./storage:/app/storage
+      - fastembed_cache:/app/.cache/fastembed
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      qdrant:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    profiles: ["web"]
+    environment:
+      API_URL: http://api:8000  # server-to-server; the browser only talks to the dashboard
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - api
 
 volumes:
   qdrant_data:

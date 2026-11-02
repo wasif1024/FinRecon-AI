@@ -32,6 +32,19 @@ every run stores a snapshot of them and every match stores which rules passed or
 The same run flags anomalies (amounts far outside a merchant's range, payment bursts) as indicators
 for review, never as fraud determinations.
 
+## Dashboard
+
+```bash
+uv run finrecon serve                  # API on :8000
+cd frontend && pnpm install && pnpm dev   # dashboard on :3000
+# or everything in Docker:
+docker compose --profile web up -d --build
+```
+
+Sign in with a demo user (set passwords with `uv run finrecon users set-password <email>`). The dashboard is a
+Next.js app that keeps the API token in an httpOnly cookie on its own server; see
+[frontend/README.md](frontend/README.md).
+
 ## REST API
 
 ```bash
