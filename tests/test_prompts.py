@@ -66,10 +66,20 @@ def scratch_prompts(tmp_path, monkeypatch):
     load_prompt.cache_clear()
 
 
-def test_lock_rejects_changes_to_released_version(scratch_prompts):
+def test_releasing_keeps_the_hash_and_locks_the_content(scratch_prompts):
+    """A draft is released by its status alone: the hash its runs were recorded with stays the same."""
+    (scratch_prompts / "prompts.lock.json").write_text("{}")
     manifest = scratch_prompts / "investigation" / "v1" / "manifest.yaml"
-    manifest.write_text(manifest.read_text().replace("status: draft", "status: released"))
-    assert lock_released() == ["investigation@v1"]
+    released = manifest.read_text()
+    manifest.write_text(released.replace("status: released", "status: draft"))
+    load_prompt.cache_clear()
+    draft = load_prompt(AgentName.INVESTIGATION, "v1")
+    assert draft.manifest.status == "draft"
+
+    manifest.write_text(released)
+    load_prompt.cache_clear()
+    assert load_prompt(AgentName.INVESTIGATION, "v1").sha256 == draft.sha256
+    assert "investigation@v1" in lock_released()
 
     system = scratch_prompts / "investigation" / "v1" / "system.md"
     system.write_text(system.read_text() + "\nOne more rule.\n")

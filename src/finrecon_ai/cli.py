@@ -177,6 +177,10 @@ def main(argv: list[str] | None = None) -> int:
     db_grant.add_argument("role", nargs="?", help="default: the user in DATABASE_URL")
     db_commands.add_parser("check", help="what the DATABASE_URL login could do beyond reading and writing rows")
 
+    docs = commands.add_parser("docs", help="generated documentation")
+    docs_commands = docs.add_subparsers(dest="docs_command", required=True)
+    docs_commands.add_parser("er", help="rewrite docs/er-diagram.md from the models (no database needed)")
+
     demo = commands.add_parser("demo", help="the demo snapshot: one tenant's data, exported and loaded exactly")
     demo_commands = demo.add_subparsers(dest="demo_command", required=True)
     demo_export = demo_commands.add_parser("export", help="as the owner: write a tenant's snapshot (no passwords)")
@@ -332,6 +336,12 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
     if args.command == "demo":
         return _demo(args)
+
+    if args.command == "docs":
+        from finrecon_ai.db.er import write
+
+        print(f"wrote {write()}")
+        return 0
 
     if args.command == "sandboxes":
         from finrecon_ai.agents.workspace import LangSmithWorkspaces

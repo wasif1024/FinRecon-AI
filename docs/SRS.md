@@ -1,7 +1,7 @@
 # FinRecon AI
 ## Software Requirements Specification (SRS)
 
-**Version:** 1.5  
+**Version:** 1.6  
 **Date:** November 2026  
 **Project:** FinRecon AI – Agentic Financial Reconciliation & Investigation Platform  
 **Status:** Revised Requirements Baseline
@@ -18,6 +18,7 @@
 | 1.3 | November 2026 | Deep Agents standards (§7): one LangSmith sandbox per case as the agents' file workspace (no code execution), an operating-manual memory and per-category playbook skills, smaller models for narrow subagents, coordinator agents on the LangGraph Agent Server (operations assistant with a background batch investigator), and recovery of interrupted runs (§8). |
 | 1.4 | November 2026 | Communication made specific: the case work (identity, cases, investigation workflow, approvals) is a Connect RPC / gRPC contract in protobuf, managed with Buf, used by the dashboard's server; REST remains for external clients, file transfer and the remaining pages. |
 | 1.5 | November 2026 | Deployment of agent runs decided (§7, §9): production runs every case workflow inside the API process, made durable by PostgreSQL checkpoints, startup recovery of interrupted runs and one run per case at a time. The LangGraph Agent Server (LangSmith Studio, coordinator agents, evaluation runs) is a development tool and is not deployed, so neither Redis nor an Agent Server licence is required. |
+| 1.6 | November 2026 | MCP decided (§9): agent tools stay in-process LangChain tools; no MCP server or client in the MVP, with the reason recorded. Database ER diagram generated from the models (§16). |
 
 ---
 
@@ -499,7 +500,11 @@ A typical reconciliation workflow:
 - LangSmith for tracing, agent monitoring, datasets and evaluation experiments.
 - LangGraph checkpointing.
 - Structured tool interfaces.
-- MCP integration where appropriate.
+- MCP integration where appropriate. Decision for the MVP: not used. The agents' tools are in-process LangChain
+  tools that run in the case's tenant-scoped database session and are recorded by the audit middleware; serving
+  them over MCP would add a network boundary and a second authorisation path with no consumer that needs it. An
+  MCP server becomes appropriate when an outside assistant should read cases: it would expose read-only tools
+  through the same permission-checked services as the API.
 
 ## Data Infrastructure
 - PostgreSQL for authoritative financial records and LangGraph checkpoints.

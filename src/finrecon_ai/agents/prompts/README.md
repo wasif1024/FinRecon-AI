@@ -22,7 +22,8 @@ prompts/
   the test suite fails if their content (including included fragments) changes. To change a released
   prompt, copy it to a new version folder, edit, and point `registry.yaml` at it.
 - **Drafts may change freely.** Release a draft by setting `status: released` and running
-  `uv run finrecon prompts lock`.
+  `uv run finrecon prompts lock`. The status is not part of the hash, so a released version keeps the hash its
+  runs were recorded with (`investigation@v3#fb8fcc983277`). Every version that has run on real data is released.
 - **System prompts are static.** No timestamps, IDs or case data in `system.md`: that keeps the prompt
   cacheable and keeps untrusted data out of instructions. Case data goes in the user message.
 - **Includes:** `{{> _shared/name.md }}` inlines a fragment. Unresolved `{{` fails loading.

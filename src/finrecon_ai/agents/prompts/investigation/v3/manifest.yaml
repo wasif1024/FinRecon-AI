@@ -1,6 +1,6 @@
 id: investigation
 version: v3
-status: draft  # draft | released
+status: released  # draft | released
 description: Investigates one reconciliation case and reports facts, hypotheses and a next action (FR-06).
 
 model: claude-opus-5-5

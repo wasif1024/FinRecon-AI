@@ -1,6 +1,6 @@
 id: risk_analysis
 version: v1
-status: draft  # draft | released
+status: released  # draft | released
 description: Assesses anomaly and duplicate indicators on a case and recommends whether to refer it (SRS 7.4).
 
 model: claude-opus-5-5

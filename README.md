@@ -7,7 +7,8 @@
 [![CI](https://github.com/wasif1024/FinRecon-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/wasif1024/FinRecon-AI/actions/workflows/ci.yml)
 
 Agentic AI platform for financial reconciliation, exception investigation and human-approved resolution.
-Requirements: [docs/SRS.md](docs/SRS.md) · Architecture: [docs/architecture.md](docs/architecture.md) · Security:
+Requirements: [docs/SRS.md](docs/SRS.md) · Architecture: [docs/architecture.md](docs/architecture.md) · Data model:
+[docs/er-diagram.md](docs/er-diagram.md) · Security:
 [docs/security.md](docs/security.md) · Agent workflow: [docs/agent-workflows.md](docs/agent-workflows.md) · Demo
 walkthrough: [docs/demo-script.md](docs/demo-script.md)
 
@@ -429,7 +430,11 @@ psql -d postgres -c "CREATE DATABASE finrecon_test OWNER finrecon"   # once
 uv run pytest
 ```
 
-Integration tests run against `<dbname>_test` and roll back after each test.
+Integration tests run against `<dbname>_test` and roll back after each test; `tests/test_demo.py` also needs
+`<dbname>_demo_test` (`psql -d postgres -c "CREATE DATABASE finrecon_demo_test OWNER finrecon"`) and skips without
+it. The SRS §12 performance targets are tests too: importing 1,000 records per source within 30 s
+(`test_ingestion.py`), reconciling them within 10 s (`test_reconciliation.py`), and every dashboard page's requests
+within 2 s on the 1,000-payment dataset (`test_performance.py`; about 50 ms for the slowest, a case's detail).
 
 ## Database migrations
 

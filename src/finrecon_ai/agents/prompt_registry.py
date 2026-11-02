@@ -17,6 +17,7 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 MEMORY_DIR = PROMPTS_DIR / "_memory"  # operating manuals loaded as Deep Agents memory (AGENTS.md)
 SKILLS_DIR = PROMPTS_DIR / "_skills"  # playbooks loaded only when a task matches (<name>/SKILL.md)
 LOCK_FILE = PROMPTS_DIR / "prompts.lock.json"
+RELEASE_STATUS = re.compile(r"^(status:\s*)released\b", re.M)
 INCLUDE = re.compile(r"\{\{>\s*([\w./-]+)\s*\}\}")
 MAX_INCLUDE_DEPTH = 5
 
@@ -102,7 +103,10 @@ def load_prompt(agent: AgentName, version: str | None = None) -> PromptSpec:
     files = {f"/{name}": _load_text(MEMORY_DIR / name, f"memory {name}") for name in manifest.memory}
     files |= {f"/skills/{name}/SKILL.md": _load_text(SKILLS_DIR / name / "SKILL.md", f"skill {name}")
               for name in manifest.skills}
-    hashed = "\0".join([raw_manifest, system_text, *(subagent_texts[s.name] for s in manifest.subagents),
+    # The release status describes a version; it is not its content. Hash the manifest as a draft, so releasing a
+    # version keeps the hash its runs were recorded with.
+    content_manifest = RELEASE_STATUS.sub(r"\1draft", raw_manifest)
+    hashed = "\0".join([content_manifest, system_text, *(subagent_texts[s.name] for s in manifest.subagents),
                          *(f"{path}\0{text}" for path, text in sorted(files.items()))])
     digest = hashlib.sha256(hashed.encode()).hexdigest()
     return PromptSpec(manifest=manifest, system_text=system_text, sha256=digest, subagent_texts=subagent_texts,
