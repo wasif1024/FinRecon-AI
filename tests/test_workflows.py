@@ -57,7 +57,7 @@ def investigation_steps():
             "summary": "Fee differs.",
             "evidence": [
                 {"label": "E1", "kind": "transaction", "id": txns[0]["source_transaction_id"], "why_relevant": "a"},
-                {"label": "E2", "kind": "transaction", "id": txns[1]["id"], "why_relevant": "b"},
+                {"label": "E2", "kind": "transaction", "id": txns[-1]["id"], "why_relevant": "b"},
                 {"label": "E9", "kind": "transaction", "id": "pg_invented", "why_relevant": "made up"},
             ],
             "findings": [
@@ -259,16 +259,6 @@ def test_returned_case_is_reinvestigated_and_recommendation_superseded(session, 
         AgentExecutionRecord.case_id == fee_case.id, AgentExecutionRecord.agent_name == AgentName.INVESTIGATION)).all()
     assert len(briefs) == 2
     assert sum("Check the merchant's other fees." in b["user_content"] for b in briefs) == 1
-
-
-def test_approval_decision_ends_workflow(session, world, fee_case, make_deps):
-    saver = InMemorySaver()
-    deps = make_deps(AgentScripts(investigation=investigation_steps(), resolution=resolution_steps()))
-    investigate_case(deps, saver, world[2][RoleName.MANAGER], fee_case.id)
-    result = resume_case(deps, saver, fee_case.id, {"decision": "approve", "comment": "ok"})
-    assert not result.paused_for_approval and result.state["decision"]["decision"] == "approve"
-    with pytest.raises(WorkflowError, match="not waiting"):
-        resume_case(deps, saver, fee_case.id, {"decision": "approve"})
 
 
 def test_pause_survives_restart_with_postgres_checkpointer(session, world, fee_case, make_deps, engine):

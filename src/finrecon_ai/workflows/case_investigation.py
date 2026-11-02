@@ -3,10 +3,11 @@
     start -> investigate -> [assess_risk] -> propose_resolution -> request_approval -> await_decision (pause)
                  ^                                                                          |
                  +----------------------- "return_for_investigation" ----------------------+
+                                                                          "approve" -> execute_resolution
 
 Each node is one unit of work: it opens a session, does its work through the deterministic services (agents
 only read), and commits. Node state holds IDs only, so a checkpoint never carries case data. The graph pauses
-at await_decision with a LangGraph interrupt and is resumed with the reviewer's decision (Phase 4).
+at await_decision with a LangGraph interrupt; decide_and_resume records a reviewer's decision and resumes it.
 """
 
 import uuid
@@ -65,6 +66,7 @@ class CaseState(TypedDict, total=False):
     approval_request_id: str
     decision: dict[str, Any] | None
     rejected_output: list[str]
+    execution_result: dict[str, Any]
     error: str | None
 
 
@@ -98,6 +100,7 @@ def build_case_graph(deps: WorkflowDeps, checkpointer: Any):
     graph.add_node("propose_resolution", lambda state: _propose(deps, state), retry_policy=AGENT_RETRY)
     graph.add_node("request_approval", lambda state, config: _request_approval(deps, state, config))
     graph.add_node("await_decision", _await_decision)
+    graph.add_node("execute_resolution", lambda state: _execute(deps, state))
     graph.add_node("failed", lambda state: _failed(deps, state))
 
     graph.add_edge(START, "start")
@@ -109,7 +112,8 @@ def build_case_graph(deps: WorkflowDeps, checkpointer: Any):
     graph.add_conditional_edges("propose_resolution", lambda s: "failed" if s.get("error") else "request_approval",
                                 ["request_approval", "failed"])
     graph.add_edge("request_approval", "await_decision")
-    graph.add_conditional_edges("await_decision", _after_decision, ["investigate", END])
+    graph.add_conditional_edges("await_decision", _after_decision, ["investigate", "execute_resolution", END])
+    graph.add_edge("execute_resolution", END)
     graph.add_edge("failed", END)
     return graph.compile(checkpointer=checkpointer)
 
@@ -146,6 +150,47 @@ def resume_case(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID, decis
     with log_context(case_id=case_id, workflow=WORKFLOW_VERSION):
         state = graph.invoke(Command(resume=decision), config)
     return WorkflowResult(thread_id_for(case_id), bool(graph.get_state(config).next), dict(state))
+
+
+def decide_and_resume(deps: WorkflowDeps, checkpointer: Any, actor: Actor, request_id: uuid.UUID,
+                      decision: ApprovalDecisionType, *, comment: str | None = None,
+                      evidence_considered_ids: list[uuid.UUID] | None = None) -> WorkflowResult:
+    """Record the decision (committed on its own), then resume the paused workflow with it."""
+    from finrecon_ai.approvals.service import decide, resume_payload
+
+    with deps.unit_of_work() as session:
+        row = decide(session, actor, request_id, decision, comment=comment,
+                     evidence_considered_ids=evidence_considered_ids)
+        case_id = session.get(ApprovalRequest, request_id).case_id
+        payload = resume_payload(row)
+    return resume_case(deps, checkpointer, case_id, payload)
+
+
+def resume_decided(deps: WorkflowDeps, checkpointer: Any, tenant_id: uuid.UUID) -> list[uuid.UUID]:
+    """Recovery: resume workflows whose decision was recorded but whose resume did not complete."""
+    from sqlalchemy import select
+
+    from finrecon_ai.approvals.service import resume_payload
+    from finrecon_ai.db.enums import ApprovalRequestStatus
+    from finrecon_ai.db.models import ApprovalDecision
+
+    with deps.unit_of_work() as session:
+        rows = session.execute(
+            select(ApprovalRequest.id, ApprovalRequest.case_id, ApprovalDecision)
+            .join(ApprovalDecision, ApprovalDecision.approval_request_id == ApprovalRequest.id)
+            .where(ApprovalRequest.tenant_id == tenant_id, ApprovalRequest.status == ApprovalRequestStatus.DECIDED)
+        ).all()
+        decided = [(request_id, case_id, resume_payload(row)) for request_id, case_id, row in rows]
+
+    graph = build_case_graph(deps, checkpointer)
+    resumed = []
+    for request_id, case_id, payload in decided:
+        snapshot = graph.get_state({"configurable": {"thread_id": thread_id_for(case_id)}})
+        # Only a thread still paused on this very request; later rounds have their own requests.
+        if snapshot.next == ("await_decision",) and snapshot.values.get("approval_request_id") == str(request_id):
+            resume_case(deps, checkpointer, case_id, payload)
+            resumed.append(case_id)
+    return resumed
 
 
 def workflow_state(deps: WorkflowDeps, checkpointer: Any, case_id: uuid.UUID) -> tuple[tuple[str, ...], dict]:
@@ -203,6 +248,7 @@ def _request_approval(deps: WorkflowDeps, state: CaseState, config: dict) -> dic
         request = ApprovalRequest(
             tenant_id=case.tenant_id, case_id=case.id, recommendation_id=recommendation.id,
             required_role=RoleName.MANAGER, requested_by_agent_execution_id=recommendation.agent_execution_id,
+            requested_by_user_id=actor.user_id,
             workflow_thread_id=config["configurable"]["thread_id"],
             workflow_checkpoint_id=config["configurable"].get("checkpoint_id"),
         )
@@ -223,6 +269,17 @@ def _await_decision(state: CaseState) -> dict[str, Any]:
     return {"decision": decision, "round": state["round"] + (1 if _returned(decision) else 0)}
 
 
+def _execute(deps: WorkflowDeps, state: CaseState) -> dict[str, Any]:
+    from finrecon_ai.approvals.executor import execute_approved
+
+    decision = state["decision"]
+    with deps.unit_of_work() as session:
+        approver = load_actor(session, uuid.UUID(state["tenant_id"]), uuid.UUID(decision["decided_by"]))
+        result = execute_approved(session, approver, uuid.UUID(state["recommendation_id"]),
+                                  uuid.UUID(decision["approval_decision_id"]))
+    return {"execution_result": result}
+
+
 def _failed(deps: WorkflowDeps, state: CaseState) -> dict[str, Any]:
     with deps.unit_of_work() as session:
         actor, case = _load(session, state)
@@ -241,7 +298,10 @@ def _after_investigation(state: CaseState) -> str:
 
 
 def _after_decision(state: CaseState) -> str:
-    return "investigate" if _returned(state.get("decision")) else END
+    decision = (state.get("decision") or {}).get("decision")
+    if decision == ApprovalDecisionType.RETURN_FOR_INVESTIGATION.value:
+        return "investigate"
+    return "execute_resolution" if decision == ApprovalDecisionType.APPROVE.value else END
 
 
 def _returned(decision: dict[str, Any] | None) -> bool:

@@ -1,5 +1,5 @@
 """Developer CLI: finrecon generate-data | seed-demo | ingest | reconcile | cases | policies | prompts | agents |
-investigate | workflow | pipeline."""
+investigate | workflow | approvals | pipeline."""
 
 import argparse
 import json
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from finrecon_ai.authz import Actor, PermissionDenied
 from finrecon_ai.cases.service import create_cases_for_run, list_cases
-from finrecon_ai.db.enums import CaseStatus, IngestionMethod, RoleName, SourceType
+from finrecon_ai.db.enums import ApprovalDecisionType, CaseStatus, IngestionMethod, RoleName, SourceType
 from finrecon_ai.db.models import (
     FinancialSource,
     ImportBatch,
@@ -43,6 +43,8 @@ DEMO_USERS = {
     RoleName.ADMIN: ("admin@demo.finrecon.dev", "Demo Admin"),
     RoleName.AUDITOR: ("auditor@demo.finrecon.dev", "Demo Auditor"),
 }
+# A second manager: whoever starts an investigation may not approve it (separation of duties).
+DEMO_APPROVER = ("approver@demo.finrecon.dev", "Demo Approver")
 
 
 def seed_demo(session: Session) -> Tenant:
@@ -65,7 +67,7 @@ def seed_demo(session: Session) -> Tenant:
                 config={"mapping": DEFAULT_MAPPINGS[source_type].model_dump(mode="json")},
             ))
     roles = {r.name: r for r in session.scalars(select(Role))}
-    for role, (email, full_name) in DEMO_USERS.items():
+    for role, (email, full_name) in [*DEMO_USERS.items(), (RoleName.MANAGER, DEMO_APPROVER)]:
         if session.scalar(select(User).where(User.tenant_id == tenant.id, User.email == email)) is None:
             session.add(User(tenant_id=tenant.id, email=email, full_name=full_name, roles=[roles[role]]))
     session.flush()
@@ -132,6 +134,17 @@ def main(argv: list[str] | None = None) -> int:
     workflow_status = workflow_commands.add_parser("status", help="where a case's workflow stands")
     workflow_status.add_argument("case_number")
 
+    approvals = commands.add_parser("approvals", help="decide recommended resolutions")
+    approval_commands = approvals.add_subparsers(dest="approval_command", required=True)
+    approval_commands.add_parser("list", help="pending approval requests")
+    approval_decide = approval_commands.add_parser("decide", help="decide a case's pending recommendation")
+    approval_decide.add_argument("case_number")
+    approval_decide.add_argument("--decision", required=True, choices=[d.value for d in ApprovalDecisionType])
+    approval_decide.add_argument("--comment")
+    approval_decide.add_argument("--as", dest="role", choices=["approver", "manager"], default="approver",
+                                 help="demo user deciding (the manager who started the investigation may not)")
+    approval_commands.add_parser("resume", help="resume workflows whose decision was recorded but not applied")
+
     pipeline = commands.add_parser("pipeline", help="ingest -> reconcile -> open cases as one workflow")
     pipeline.add_argument("--dir", type=Path, default=Path("data/synthetic"))
 
@@ -168,7 +181,7 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         print(json.dumps(dataset.manifest["files"], indent=2))
         return 0
 
-    if args.command in ("investigate", "workflow"):
+    if args.command in ("investigate", "workflow", "approvals"):
         from finrecon_ai.workflows.case_investigation import ensure_checkpoint_tables
 
         ensure_checkpoint_tables()  # before any other transaction opens (see its docstring)
@@ -203,6 +216,9 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
             session.commit()  # release locks: the workflow's nodes use their own transactions
             return _investigate(actor, case.id, case.case_number) if args.command == "investigate" \
                 else _workflow_status(case.id)
+
+        if args.command == "approvals":
+            return _approvals(session, tenant, args)
 
         if args.command == "pipeline":
             from finrecon_ai.workflows.case_investigation import session_unit_of_work
@@ -357,6 +373,65 @@ def _print_case_summary(case_id, state: dict, paused: bool) -> None:
             print(f"  amount {action['amount']} {action['currency']} | contact {action['contact']} | "
                   f"policy passages {len(action['policy_evidence_ids'])}"
                   + (f" | warnings: {action['warnings']}" if action["warnings"] else ""))
+
+
+def _approvals(session: Session, tenant: Tenant, args: argparse.Namespace) -> int:
+    from finrecon_ai.agents.llm import default_client
+    from finrecon_ai.approvals.executor import ExecutionError
+    from finrecon_ai.approvals.service import ApprovalError, list_pending
+    from finrecon_ai.db.models import ApprovalRequest, ResolutionRecommendation
+    from finrecon_ai.policies.store import default_store
+    from finrecon_ai.workflows.case_investigation import (
+        WorkflowDeps,
+        decide_and_resume,
+        postgres_checkpointer,
+        resume_decided,
+        session_unit_of_work,
+    )
+
+    approver = _demo_approver(session, tenant)
+    if args.approval_command == "list":
+        for request in list_pending(session, approver):
+            case = session.get(InvestigationCase, request.case_id)
+            rec = session.get(ResolutionRecommendation, request.recommendation_id)
+            print(f"{case.case_number}  {rec.resolution_type:<24} v{rec.version}  {rec.summary[:90]}")
+        return 0
+
+    actor = approver if getattr(args, "role", "approver") == "approver" else \
+        _demo_actor(session, tenant, RoleName.MANAGER)
+    session.commit()
+    # Agents run again only on "return_for_investigation"; the client is created lazily by the SDK.
+    deps = WorkflowDeps(unit_of_work=session_unit_of_work(), llm=default_client(), policy_store=default_store())
+    with postgres_checkpointer() as checkpointer:
+        if args.approval_command == "resume":
+            resumed = resume_decided(deps, checkpointer, tenant.id)
+            print(f"resumed {len(resumed)} workflow(s)")
+            return 0
+        case = session.scalar(select(InvestigationCase).where(InvestigationCase.tenant_id == tenant.id,
+                                                              InvestigationCase.case_number == args.case_number))
+        request = session.scalar(select(ApprovalRequest).where(
+            ApprovalRequest.case_id == case.id, ApprovalRequest.status == "pending")) if case else None
+        if request is None:
+            print(f"{args.case_number}: no pending approval request", file=sys.stderr)
+            return 1
+        session.commit()
+        try:
+            result = decide_and_resume(deps, checkpointer, actor, request.id, ApprovalDecisionType(args.decision),
+                                       comment=args.comment)
+        except (ApprovalError, ExecutionError, PermissionDenied) as exc:
+            print(f"{args.case_number}: {exc}", file=sys.stderr)
+            return 1
+    _print_case_summary(case.id, result.state, result.paused_for_approval)
+    if result.state.get("execution_result"):
+        print(f"\nexecuted: {json.dumps(result.state['execution_result'], indent=2)}")
+    return 0
+
+
+def _demo_approver(session: Session, tenant: Tenant) -> Actor:
+    from finrecon_ai.authz import load_actor
+
+    user = session.scalar(select(User).where(User.tenant_id == tenant.id, User.email == DEMO_APPROVER[0]))
+    return load_actor(session, tenant.id, user.id)
 
 
 def _demo_actor(session: Session, tenant: Tenant, role: RoleName) -> Actor:

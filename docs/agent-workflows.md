@@ -36,11 +36,33 @@ graph TD
   res --> req[request approval<br/>case → awaiting_approval]
   req --> wait{{await decision<br/>LangGraph interrupt}}
   wait -->|return for investigation| inv
-  wait -->|approve / reject / request evidence| finish([end — applied in Phase 4])
+  wait -->|approve| exec[execute resolution<br/>fixed plan per type, once]
+  wait -->|reject / request evidence| finish([end])
+  exec --> finish
   fail --> finish
 ```
 
-`uv run finrecon investigate CASE-000008` then `uv run finrecon workflow status CASE-000008`
+```bash
+uv run finrecon investigate CASE-000008                              # runs agents, pauses
+uv run finrecon approvals list
+uv run finrecon approvals decide CASE-000008 --decision approve      # a different manager decides
+```
+
+### Decisions (`approvals/service.py`) and execution (`approvals/executor.py`)
+
+| Decision | Case moves to | Recommendation | Workflow |
+|---|---|---|---|
+| approve | approved, then resolved or awaiting evidence | executed | runs the execution plan, ends |
+| reject | rejected | rejected | ends |
+| request evidence | awaiting evidence | superseded | ends |
+| return for investigation | investigating | superseded | agents run again with the comment |
+
+Execution plans: `confirm_fee_discrepancy` and `no_action_required` resolve the case and exception;
+`manual_match` also creates an approved manual match; `request_documentation`, `investigate_duplicate` and
+`escalate` record the follow-up steps and leave the case awaiting evidence. Nothing moves money.
+
+A decision is committed before the workflow resumes; `finrecon approvals resume` resumes any whose resume did
+not complete. Execution runs at most once (unique execution key) and a retry returns the recorded result.
 
 ### What makes agent output trustworthy
 
@@ -51,6 +73,7 @@ graph TD
 | A "verified fact" whose evidence was dropped is stored as a hypothesis, marked `[Unverified…]` | `agents/persistence.py` |
 | Recommendation amounts and currencies come from the matching engine, not the model | `agents/persistence.py` |
 | Everything rejected is listed in the audit event and the workflow state | `agent.findings_recorded`, `rejected_output` |
-| Decisions out of `awaiting_approval` only through the approval workflow | `cases/lifecycle.py` |
+| Decisions out of `awaiting_approval` only through the approval service; `resolved` only by execution | `cases/lifecycle.py` |
+| Whoever started the investigation cannot decide it; one immutable decision per request | `approvals/service.py`, DB constraint + trigger |
 | Transient API errors retried (3 attempts, backoff); other failures end the run, audited | `AGENT_RETRY`, `failed` node |
 | Each run records its exact prompt (`agent@version#hash`), tool calls and tokens | `agent_execution_records` |

@@ -69,6 +69,7 @@ class MatchStrategy(StrEnum):
     DATE_WINDOW = "date_window"
     COUNTERPARTY = "counterparty"
     TOLERANCE = "tolerance"
+    MANUAL = "manual"  # created by an approved manual_match resolution
 
 
 class ExceptionCategory(StrEnum):
@@ -94,6 +95,7 @@ class Severity(StrEnum):
 class ExceptionStatus(StrEnum):
     OPEN = "open"
     CASE_CREATED = "case_created"
+    RESOLVED = "resolved"  # its case's approved resolution was executed
     DISMISSED = "dismissed"
 
 

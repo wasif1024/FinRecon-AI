@@ -10,13 +10,17 @@ from finrecon_ai.db.enums import CaseStatus, ClosureReason
 class Transition:
     permission: Permission
     requires_comment: bool = False
-    # Only the approval workflow (Phase 4) may take this step; it records the decision in approval_decisions.
+    # Only the approval service may take this step; it records the decision in approval_decisions.
     approval_only: bool = False
+    # Only the resolution executor may take this step, after executing an approved recommendation.
+    executor_only: bool = False
 
 
 _WORK = Transition(Permission.CASE_WORK)
 _WORK_EXPLAINED = Transition(Permission.CASE_WORK, requires_comment=True)
 _DECISION = Transition(Permission.CASE_DECIDE, requires_comment=True, approval_only=True)
+_APPROVAL = Transition(Permission.CASE_DECIDE, approval_only=True)
+_EXECUTION = Transition(Permission.CASE_DECIDE, executor_only=True)
 
 TRANSITIONS: dict[CaseStatus, dict[CaseStatus, Transition]] = {
     CaseStatus.NEW: {
@@ -32,13 +36,14 @@ TRANSITIONS: dict[CaseStatus, dict[CaseStatus, Transition]] = {
         CaseStatus.INVESTIGATING: _WORK,
     },
     CaseStatus.AWAITING_APPROVAL: {
-        CaseStatus.APPROVED: _DECISION,
+        CaseStatus.APPROVED: _APPROVAL,  # approving needs no comment; the other decisions do
         CaseStatus.REJECTED: _DECISION,
         CaseStatus.AWAITING_EVIDENCE: _DECISION,  # "request additional evidence"
         CaseStatus.INVESTIGATING: _DECISION,  # "return for investigation"
     },
     CaseStatus.APPROVED: {
-        CaseStatus.RESOLVED: _WORK,
+        CaseStatus.RESOLVED: _EXECUTION,  # the resolution was carried out
+        CaseStatus.AWAITING_EVIDENCE: _EXECUTION,  # the approved resolution is a follow-up (documents, escalation)
     },
     CaseStatus.REJECTED: {
         CaseStatus.INVESTIGATING: _WORK,

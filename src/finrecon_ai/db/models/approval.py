@@ -30,6 +30,8 @@ class ApprovalRequest(UUIDPrimaryKeyMixin, TenantMixin, TimestampMixin, Base):
         str_enum(ApprovalRequestStatus), server_default=ApprovalRequestStatus.PENDING.value, index=True
     )
     required_role: Mapped[RoleName] = mapped_column(str_enum(RoleName), server_default=RoleName.MANAGER.value)
+    # Who started the workflow that produced the recommendation; they may not decide it (separation of duties).
+    requested_by_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     requested_by_agent_execution_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("agent_execution_records.id", ondelete="SET NULL")
     )
@@ -44,8 +46,9 @@ class ApprovalDecision(UUIDPrimaryKeyMixin, TenantMixin, Base):
 
     __tablename__ = "approval_decisions"
 
+    # One decision per request: a second reviewer cannot overwrite the first.
     approval_request_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("approval_requests.id", ondelete="RESTRICT"), index=True
+        ForeignKey("approval_requests.id", ondelete="RESTRICT"), unique=True
     )
     reviewer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
     decision: Mapped[ApprovalDecisionType] = mapped_column(str_enum(ApprovalDecisionType))

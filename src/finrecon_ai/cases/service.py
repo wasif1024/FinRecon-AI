@@ -8,6 +8,7 @@ import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, insert, select, update
@@ -189,6 +190,8 @@ def transition_case(session: Session, actor: Actor, case_id: uuid.UUID, to_statu
         raise InvalidTransition(f"cannot move a case from {current} to {to_status}")
     if rule.approval_only:
         raise InvalidTransition(f"{current} -> {to_status} is decided through the approval workflow")
+    if rule.executor_only:
+        raise InvalidTransition(f"{current} -> {to_status} happens only by executing an approved resolution")
     actor.require(rule.permission)
     require_assignment(actor, case)
 
@@ -217,6 +220,23 @@ def transition_case(session: Session, actor: Actor, case_id: uuid.UUID, to_statu
     _audit(session, actor, case, "case.status_changed",
            {"from": current, "to": to_status, "comment": comment, "closure_reason": closure_reason})
     return case
+
+
+def controlled_transition(session: Session, actor: Actor, case: InvestigationCase, to_status: CaseStatus, *,
+                          via: Literal["approval", "executor"], reference: dict) -> None:
+    """Moves reserved for the approval service and the resolution executor. Not for direct use."""
+    rule = TRANSITIONS[case.status].get(to_status)
+    allowed = rule is not None and (rule.approval_only if via == "approval" else rule.executor_only)
+    if not allowed:
+        raise InvalidTransition(f"{via} cannot move a case from {case.status} to {to_status}")
+    actor.require(rule.permission)
+    current = case.status
+    case.status = to_status
+    if to_status is CaseStatus.RESOLVED:
+        case.resolved_at = datetime.now(UTC)
+    session.flush()
+    log.info("case.status_changed", case_id=case.id, from_status=current, to_status=to_status, via=via)
+    _audit(session, actor, case, "case.status_changed", {"from": current, "to": to_status, "via": via, **reference})
 
 
 def add_note(session: Session, actor: Actor, case_id: uuid.UUID, text: str) -> InvestigationEvidence:

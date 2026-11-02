@@ -42,6 +42,7 @@ Diagrams and controls: [docs/agent-workflows.md](docs/agent-workflows.md).
 uv run finrecon pipeline run                     # ingest -> reconcile -> open cases
 uv run finrecon investigate CASE-000008          # agents investigate, propose, pause for approval (calls Claude)
 uv run finrecon workflow status CASE-000008
+uv run finrecon approvals decide CASE-000008 --decision approve   # a different manager approves; plan executes
 ```
 
 Prompts are versioned files in `src/finrecon_ai/agents/prompts/` (see the README there).
